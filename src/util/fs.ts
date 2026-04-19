@@ -18,6 +18,15 @@ export function joinPath(...parts: string[]) {
   return path.join(...parts);
 }
 
+export function normalizeRepoPath(input: string | undefined) {
+  const value = (input || ".").replace(/\\/g, "/").replace(/^\/+/, "");
+  return value || ".";
+}
+
+export function toRepoPath(input: string) {
+  return input.replace(/\\/g, "/");
+}
+
 export function sanitizePathSegment(input: string) {
   return (
     input.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "item"

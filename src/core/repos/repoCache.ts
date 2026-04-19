@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { extract as extractTarArchive } from "tar";
 import type { ImmanenceConfig } from "../config.js";
 import { AppError } from "../errors.js";
 import type {
@@ -10,7 +11,11 @@ import type {
   ResolvedRepoInput,
 } from "../types.js";
 import { ensureDir, pathExists, sanitizePathSegment } from "../../util/fs.js";
-import { execCommand, execCommandOrThrow } from "../../util/process.js";
+import {
+  execCommand,
+  execCommandOrThrow,
+  hasCommand,
+} from "../../util/process.js";
 import { buildGitHubCloneUrl, buildGitHubTarballUrl } from "./github.js";
 
 type PreparedSnapshot = {
@@ -174,16 +179,63 @@ async function downloadSnapshot(args: {
   await ensureDir(path.dirname(args.archivePath));
   await fs.writeFile(args.archivePath, buffer);
 
+  await extractSnapshotArchive({
+    archivePath: args.archivePath,
+    snapshotPath: args.snapshotPath,
+    repo: args.input.repo,
+    ref: args.input.ref!,
+  });
+}
+
+async function extractSnapshotArchiveWithLibrary(args: {
+  archivePath: string;
+  partialPath: string;
+  repo: string;
+  ref: string;
+}) {
+  try {
+    await extractTarArchive({
+      cwd: args.partialPath,
+      file: args.archivePath,
+      strip: 1,
+    });
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "tar extract failed.";
+    throw new Error(
+      `tar extract ${args.repo}@${args.ref} failed with exit code -1: ${detail}`,
+    );
+  }
+}
+
+export async function extractSnapshotArchive(args: {
+  archivePath: string;
+  snapshotPath: string;
+  repo: string;
+  ref: string;
+  preferSystemTar?: boolean;
+}) {
   const partialPath = `${args.snapshotPath}.partial-${randomUUID()}`;
   await ensureDir(partialPath);
   try {
-    await execCommandOrThrow(
-      "tar",
-      ["-xzf", args.archivePath, "-C", partialPath, "--strip-components=1"],
-      {
-        errorPrefix: `tar extract ${args.input.repo}@${args.input.ref}`,
-      },
-    );
+    const shouldUseSystemTar =
+      args.preferSystemTar !== false && (await hasCommand("tar"));
+    if (shouldUseSystemTar) {
+      await execCommandOrThrow(
+        "tar",
+        ["-xzf", args.archivePath, "-C", partialPath, "--strip-components=1"],
+        {
+          errorPrefix: `tar extract ${args.repo}@${args.ref}`,
+        },
+      );
+    } else {
+      await extractSnapshotArchiveWithLibrary({
+        archivePath: args.archivePath,
+        partialPath,
+        repo: args.repo,
+        ref: args.ref,
+      });
+    }
     await ensureDir(path.dirname(args.snapshotPath));
     await fs.rename(partialPath, args.snapshotPath).catch(async (error) => {
       const code =

@@ -12,8 +12,6 @@ The name means something being present within rather than outside. Here, the ans
 
 - Node.js 20+
 - `git`
-- `tar`
-- `rg`
 
 Optional:
 
@@ -25,6 +23,15 @@ Optional:
 npm install
 npm run build
 ```
+
+### Windows
+
+Native Windows is supported.
+
+- external dependency: `git`
+- default data dir: `%LOCALAPPDATA%\\immanence\\data`
+- default cache dir: `%LOCALAPPDATA%\\immanence\\cache`
+- `IMMANENCE_DATA_DIR` and `IMMANENCE_CACHE_DIR` override the defaults
 
 ### Sign in
 
@@ -130,10 +137,18 @@ Tool:
 
 Defaults:
 
-- data: `~/.local/share/immanence`
-- cache: `~/.cache/immanence`
-- auth: `~/.local/share/immanence/auth.json`
-- repo snapshots: `~/.local/share/immanence/repos/github.com/...`
+- data:
+  - Linux/macOS: `~/.local/share/immanence`
+  - Windows: `%LOCALAPPDATA%\\immanence\\data`
+- cache:
+  - Linux/macOS: `~/.cache/immanence`
+  - Windows: `%LOCALAPPDATA%\\immanence\\cache`
+- auth:
+  - Linux/macOS: `~/.local/share/immanence/auth.json`
+  - Windows: `%LOCALAPPDATA%\\immanence\\data\\auth.json`
+- repo snapshots:
+  - Linux/macOS: `~/.local/share/immanence/repos/github.com/...`
+  - Windows: `%LOCALAPPDATA%\\immanence\\data\\repos\\github.com\\...`
 
 Environment:
 

@@ -6,6 +6,8 @@ type ExecResult = {
   exitCode: number;
 };
 
+const commandAvailabilityCache = new Map<string, Promise<boolean>>();
+
 export async function execCommand(
   command: string,
   args: string[],
@@ -65,4 +67,34 @@ export async function execCommandOrThrow(
   throw new Error(
     `${prefix} failed with exit code ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim()}`,
   );
+}
+
+export async function hasCommand(
+  command: string,
+  probeArgs: string[] = ["--version"],
+) {
+  const cacheKey = `${command}\0${probeArgs.join("\0")}`;
+  const cached = commandAvailabilityCache.get(cacheKey);
+  if (cached) return await cached;
+
+  const pending = new Promise<boolean>((resolve) => {
+    const child = spawn(command, probeArgs, {
+      stdio: "ignore",
+    });
+
+    let settled = false;
+
+    child.on("error", () => {
+      settled = true;
+      resolve(false);
+    });
+    child.on("close", () => {
+      if (settled) return;
+      settled = true;
+      resolve(true);
+    });
+  });
+
+  commandAvailabilityCache.set(cacheKey, pending);
+  return await pending;
 }

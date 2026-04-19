@@ -15,13 +15,42 @@ export type ImmanenceConfig = {
   braveApiKey: string | null;
 };
 
+export function resolveStorageDirs(args: {
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+  homedir?: string;
+} = {}) {
+  const platform = args.platform ?? process.platform;
+  const env = args.env ?? process.env;
+  const homedir = args.homedir ?? os.homedir();
+
+  const defaults =
+    platform === "win32"
+      ? {
+          dataDir: path.join(
+            env.LOCALAPPDATA || path.join(homedir, "AppData", "Local"),
+            "immanence",
+            "data",
+          ),
+          cacheDir: path.join(
+            env.LOCALAPPDATA || path.join(homedir, "AppData", "Local"),
+            "immanence",
+            "cache",
+          ),
+        }
+      : {
+          dataDir: path.join(homedir, ".local", "share", "immanence"),
+          cacheDir: path.join(homedir, ".cache", "immanence"),
+        };
+
+  return {
+    dataDir: env.IMMANENCE_DATA_DIR || defaults.dataDir,
+    cacheDir: env.IMMANENCE_CACHE_DIR || defaults.cacheDir,
+  };
+}
+
 export function loadConfig(): ImmanenceConfig {
-  const dataDir =
-    process.env.IMMANENCE_DATA_DIR ||
-    path.join(os.homedir(), ".local", "share", "immanence");
-  const cacheDir =
-    process.env.IMMANENCE_CACHE_DIR ||
-    path.join(os.homedir(), ".cache", "immanence");
+  const { dataDir, cacheDir } = resolveStorageDirs();
   return {
     dataDir,
     cacheDir,

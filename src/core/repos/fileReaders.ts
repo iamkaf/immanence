@@ -1,15 +1,19 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { minimatch } from "minimatch";
 import type { FileCitation, RepoHandle } from "../types.js";
 import { AppError } from "../errors.js";
-import { execCommand, execCommandOrThrow } from "../../util/process.js";
+import {
+  normalizeRepoPath,
+  toRepoPath,
+} from "../../util/fs.js";
+import {
+  execCommand,
+  execCommandOrThrow,
+  hasCommand,
+} from "../../util/process.js";
 
 const MAX_READ_BYTES = 64 * 1024;
-
-function normalizeRepoPath(inputPath: string | undefined) {
-  const value = (inputPath || ".").replace(/^\/+/, "");
-  return value || ".";
-}
 
 async function statOrThrow(fullPath: string) {
   try {
@@ -52,8 +56,9 @@ export async function listRepoFiles(
     for (const entry of dirEntries) {
       if (entry.name === ".git") continue;
       if (!includeHidden && entry.name.startsWith(".")) continue;
-      const entryRelPath =
-        relativePath === "." ? entry.name : path.join(relativePath, entry.name);
+      const entryRelPath = toRepoPath(
+        relativePath === "." ? entry.name : path.join(relativePath, entry.name),
+      );
       const entryPath = path.join(currentPath, entry.name);
       if (entry.isDirectory()) {
         entries.push({ name: entry.name, path: entryRelPath, kind: "dir" });
@@ -140,13 +145,13 @@ export async function readRepoFile(
     kind: "file",
     repo: handle.repo,
     commitSha: handle.commitSha,
-    path: normalizedPath,
+    path: toRepoPath(normalizedPath),
     startLine: safeStart,
     endLine: safeEnd,
   };
 
   return {
-    path: normalizedPath,
+    path: toRepoPath(normalizedPath),
     startLine: safeStart,
     endLine: safeEnd,
     content: output,
@@ -155,7 +160,16 @@ export async function readRepoFile(
   };
 }
 
-export async function searchRepo(
+function compileRegex(query: string, caseSensitive: boolean) {
+  try {
+    return new RegExp(query, caseSensitive ? "" : "i");
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Invalid regex.";
+    throw new AppError("SEARCH_UNAVAILABLE", detail, 500);
+  }
+}
+
+async function searchRepoWithRipgrep(
   handle: RepoHandle,
   query: string,
   args: {
@@ -163,9 +177,9 @@ export async function searchRepo(
     regex?: boolean;
     caseSensitive?: boolean;
     maxResults?: number;
-  } = {},
+  },
+  maxResults: number,
 ) {
-  const maxResults = Math.min(args.maxResults ?? 20, 100);
   const rgArgs = [
     "--line-number",
     "--column",
@@ -199,7 +213,7 @@ export async function searchRepo(
       const match = line.match(/^(.+?):(\d+):(\d+):(.*)$/);
       if (!match) return null;
       return {
-        path: match[1] ?? "",
+        path: toRepoPath(match[1] ?? ""),
         line: Number(match[2] ?? 0),
         column: Number(match[3] ?? 0),
         preview: (match[4] ?? "").trim(),
@@ -212,6 +226,112 @@ export async function searchRepo(
     matches,
     truncated: matches.length >= maxResults,
   };
+}
+
+export async function searchRepoWithNode(
+  handle: RepoHandle,
+  query: string,
+  args: {
+    pathGlob?: string;
+    regex?: boolean;
+    caseSensitive?: boolean;
+    maxResults?: number;
+  },
+  maxResults: number,
+) {
+  const matches: Array<{
+    path: string;
+    line: number;
+    column: number;
+    preview: string;
+  }> = [];
+  const pathGlob = args.pathGlob;
+  const regex = args.regex ? compileRegex(query, !!args.caseSensitive) : null;
+  const fixedStringQuery =
+    args.regex || args.caseSensitive ? query : query.toLowerCase();
+
+  async function walk(currentPath: string, relativePath: string): Promise<void> {
+    if (matches.length >= maxResults) return;
+    const dirEntries = (await fs.readdir(currentPath, { withFileTypes: true })).sort(
+      (left, right) => left.name.localeCompare(right.name),
+    );
+    for (const entry of dirEntries) {
+      if (entry.name === ".git" || entry.name.startsWith(".")) continue;
+      const entryPath = path.join(currentPath, entry.name);
+      const entryRelPath = toRepoPath(
+        relativePath === "." ? entry.name : path.join(relativePath, entry.name),
+      );
+      if (entry.isDirectory()) {
+        await walk(entryPath, entryRelPath);
+      } else if (entry.isFile()) {
+        if (
+          pathGlob &&
+          !minimatch(entryRelPath, pathGlob, {
+            matchBase: !pathGlob.includes("/"),
+            windowsPathsNoEscape: true,
+          })
+        ) {
+          continue;
+        }
+
+        const content = await fs.readFile(entryPath);
+        if (isProbablyBinary(content)) continue;
+        const text = content.toString("utf8");
+        const lines = text.split(/\r?\n/);
+        for (const [index, line] of lines.entries()) {
+          const column = regex
+            ? regex.exec(line)?.index ?? -1
+            : args.caseSensitive
+              ? line.indexOf(fixedStringQuery)
+              : line.toLowerCase().indexOf(fixedStringQuery);
+          if (column < 0) continue;
+          matches.push({
+            path: entryRelPath,
+            line: index + 1,
+            column: column + 1,
+            preview: line.trim(),
+          });
+          if (matches.length >= maxResults) break;
+        }
+      }
+
+      if (matches.length >= maxResults) break;
+    }
+  }
+
+  await walk(handle.workspacePath, ".");
+
+  return {
+    query,
+    matches,
+    truncated: matches.length >= maxResults,
+  };
+}
+
+export async function searchRepo(
+  handle: RepoHandle,
+  query: string,
+  args: {
+    pathGlob?: string;
+    regex?: boolean;
+    caseSensitive?: boolean;
+    maxResults?: number;
+  } = {},
+) {
+  const maxResults = Math.min(args.maxResults ?? 20, 100);
+  const normalizedArgs = {
+    ...args,
+    pathGlob: args.pathGlob ? toRepoPath(args.pathGlob) : undefined,
+  };
+  if (await hasCommand("rg")) {
+    return await searchRepoWithRipgrep(
+      handle,
+      query,
+      normalizedArgs,
+      maxResults,
+    );
+  }
+  return await searchRepoWithNode(handle, query, normalizedArgs, maxResults);
 }
 
 export async function repoTopLevelFiles(handle: RepoHandle) {
