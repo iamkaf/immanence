@@ -4,6 +4,8 @@ import type { FileCitation, RepoHandle } from "../types.js";
 import { AppError } from "../errors.js";
 import { execCommand, execCommandOrThrow } from "../../util/process.js";
 
+const MAX_READ_BYTES = 64 * 1024;
+
 function normalizeRepoPath(inputPath: string | undefined) {
   const value = (inputPath || ".").replace(/^\/+/, "");
   return value || ".";
@@ -79,6 +81,23 @@ export async function readRepoFile(handle: RepoHandle, repoPath: string, startLi
   const safeStart = Math.max(1, startLine ?? 1);
   const safeEnd = Math.min(lines.length, endLine ?? safeStart + 399);
   const sliced = lines.slice(safeStart - 1, safeEnd);
+  let truncated = safeEnd < lines.length;
+  const selectedText = sliced.join("\n");
+  let output = selectedText;
+
+  if (Buffer.byteLength(selectedText, "utf8") > MAX_READ_BYTES) {
+    let bytes = 0;
+    const pieces: string[] = [];
+    for (const line of sliced) {
+      const segment = pieces.length === 0 ? line : `\n${line}`;
+      const segmentBytes = Buffer.byteLength(segment, "utf8");
+      if (bytes + segmentBytes > MAX_READ_BYTES) break;
+      pieces.push(pieces.length === 0 ? line : segment);
+      bytes += segmentBytes;
+    }
+    output = pieces.join("");
+    truncated = true;
+  }
 
   const citation: FileCitation = {
     kind: "file",
@@ -93,8 +112,8 @@ export async function readRepoFile(handle: RepoHandle, repoPath: string, startLi
     path: normalizedPath,
     startLine: safeStart,
     endLine: safeEnd,
-    content: sliced.join("\n"),
-    truncated: safeEnd < lines.length,
+    content: output,
+    truncated,
     citation,
   };
 }

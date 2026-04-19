@@ -20,6 +20,7 @@ export type AgentSessionState = {
   citations: Citation[];
   trace: TraceEntry[];
   warnings: string[];
+  onProgress?: (message: string) => void;
 };
 
 function findRepoEntry(state: AgentSessionState, repoId: string) {
@@ -68,6 +69,7 @@ async function cloneRepo(state: AgentSessionState, repo: string, ref?: string, r
     config: state.config,
     refresh: (refresh as RefreshMode | undefined) ?? state.refresh,
     requestId: state.requestId,
+    onProgress: state.onProgress,
   });
   state.repoEntries.set(prepared.handle.repoId, prepared);
   state.trace.push({
@@ -90,14 +92,17 @@ export async function executeToolCall(
   rawArgs: Record<string, unknown>,
   state: AgentSessionState,
 ) {
+  state.onProgress?.(`tool ${toolName}: started`);
   switch (toolName) {
     case "clone": {
-      return await cloneRepo(
+      const result = await cloneRepo(
         state,
         String(rawArgs.repo ?? ""),
         typeof rawArgs.ref === "string" ? rawArgs.ref : undefined,
         typeof rawArgs.refresh === "string" ? rawArgs.refresh : undefined,
       );
+      state.onProgress?.(`tool ${toolName}: completed`);
+      return result;
     }
     case "list": {
       const entry = findRepoEntry(state, String(rawArgs.repoId ?? ""));
@@ -111,6 +116,7 @@ export async function executeToolCall(
         tool: "list",
         summary: `Listed ${result.path} in ${entry.handle.repo}.`,
       });
+      state.onProgress?.(`tool ${toolName}: completed`);
       return result;
     }
     case "read": {
@@ -126,6 +132,7 @@ export async function executeToolCall(
         tool: "read",
         summary: `Read ${result.path}:${result.startLine}-${result.endLine} in ${entry.handle.repo}.`,
       });
+      state.onProgress?.(`tool ${toolName}: completed`);
       return result;
     }
     case "search": {
@@ -150,6 +157,7 @@ export async function executeToolCall(
         tool: "search",
         summary: `Searched ${entry.handle.repo} for "${result.query}".`,
       });
+      state.onProgress?.(`tool ${toolName}: completed (${result.matches.length} matches)`);
       return result;
     }
     case "web_search": {
@@ -159,6 +167,7 @@ export async function executeToolCall(
         tool: "web_search",
         summary: `Searched the web for "${String(rawArgs.query ?? "")}".`,
       });
+      state.onProgress?.(`tool ${toolName}: completed (${results.length} results)`);
       return { results };
     }
     default:

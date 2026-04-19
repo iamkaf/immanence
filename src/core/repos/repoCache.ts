@@ -39,21 +39,30 @@ async function shouldRefreshMirror(mirrorPath: string, refresh: RefreshMode, sta
   return Date.now() - fetchedAt > staleRepoMs;
 }
 
-async function prepareMirror(input: ResolvedRepoInput, config: ImmanenceConfig, refresh: RefreshMode): Promise<PreparedMirror> {
+async function prepareMirror(
+  input: ResolvedRepoInput,
+  config: ImmanenceConfig,
+  refresh: RefreshMode,
+  onProgress?: (message: string) => void,
+): Promise<PreparedMirror> {
   const mirrorPath = path.join(config.reposDir, input.owner, `${input.name}.git`);
   const cloneUrl = buildGitHubCloneUrl(input);
   await ensureDir(path.dirname(mirrorPath));
 
   if (!(await pathExists(mirrorPath))) {
+    onProgress?.(`repo ${input.repo}: cloning mirror from GitHub`);
     const result = await execCommand("git", ["clone", "--mirror", cloneUrl, mirrorPath]);
     if (result.exitCode !== 0) {
       throw new AppError("CLONE_FAILED", `Failed to clone ${input.repo}: ${result.stderr.trim() || result.stdout.trim()}`, 502);
     }
   } else if (await shouldRefreshMirror(mirrorPath, refresh, config.staleRepoMs)) {
+    onProgress?.(`repo ${input.repo}: refreshing cached mirror`);
     const result = await execCommand("git", ["--git-dir", mirrorPath, "remote", "update", "--prune"]);
     if (result.exitCode !== 0) {
       throw new AppError("CLONE_FAILED", `Failed to refresh ${input.repo}: ${result.stderr.trim() || result.stdout.trim()}`, 502);
     }
+  } else {
+    onProgress?.(`repo ${input.repo}: reusing cached mirror`);
   }
 
   let defaultBranch = "main";
@@ -81,9 +90,12 @@ export async function prepareRepoHandle(args: {
   config: ImmanenceConfig;
   refresh: RefreshMode;
   requestId?: string;
+  onProgress?: (message: string) => void;
 }) {
   const requestId = args.requestId || randomUUID();
-  const preparedMirror = await prepareMirror(args.input, args.config, args.refresh);
+  args.onProgress?.(`repo ${args.input.repo}: preparing mirror`);
+  const preparedMirror = await prepareMirror(args.input, args.config, args.refresh, args.onProgress);
+  args.onProgress?.(`repo ${args.input.repo}: creating detached worktree at ${preparedMirror.commitSha.slice(0, 12)}`);
   const workspacePath = await createDetachedWorktree({
     mirrorPath: preparedMirror.mirrorPath,
     runsDir: args.config.runsDir,

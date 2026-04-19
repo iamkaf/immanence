@@ -17,7 +17,10 @@ auth.command("login").action(async () => await authLoginCommand());
 auth.command("status").action(async () => await authStatusCommand());
 auth.command("logout").action(async () => await authLogoutCommand());
 
-program.command("models").action(async () => await modelsCommand());
+program
+  .command("models")
+  .option("--json", "Emit JSON")
+  .action(async (options) => await modelsCommand({ json: !!options.json }));
 
 program
   .command("ask")

@@ -10,6 +10,8 @@ import { executeToolCall, type AgentSessionState } from "./toolExecutor.js";
 import { resolveCodexApiKey, resolveCodexModel } from "../auth/codexAuth.js";
 import { cleanupRepoHandles } from "../repos/repoCache.js";
 
+const MAX_TOOL_RESULT_CHARS = 200_000;
+
 function assistantText(message: AssistantMessage) {
   return message.content
     .filter((item): item is Extract<AssistantMessage["content"][number], { type: "text" }> => item.type === "text")
@@ -17,16 +19,34 @@ function assistantText(message: AssistantMessage) {
     .join("");
 }
 
+function serializeToolResult(result: unknown) {
+  const json = JSON.stringify(result, null, 2);
+  if (json.length <= MAX_TOOL_RESULT_CHARS) return json;
+  return JSON.stringify(
+    {
+      truncated: true,
+      maxChars: MAX_TOOL_RESULT_CHARS,
+      preview: json.slice(0, MAX_TOOL_RESULT_CHARS),
+    },
+    null,
+    2,
+  );
+}
+
 export async function runAgentQuestion(args: {
   config: ImmanenceConfig;
   request: QuestionRequest;
   repos: Array<{ handle: RepoHandle; mirrorPath: string }>;
   onDelta?: (delta: string) => void;
+  onProgress?: (message: string) => void;
 }) : Promise<QuestionResponse> {
-  const model = await resolveCodexModel(args.request.model);
+  args.onProgress?.("resolving model");
+  const model = await resolveCodexModel(args.request.model ?? args.config.defaultModel);
   if (!model) {
     throw new AppError("MODEL_ERROR", "No Codex models are available.", 500);
   }
+  args.onProgress?.(`using model ${model.id}`);
+  args.onProgress?.("resolving API key");
   const apiKey = await resolveCodexApiKey(args.config.authFilePath);
   const requestId = randomUUID();
 
@@ -38,6 +58,7 @@ export async function runAgentQuestion(args: {
     citations: [],
     trace: [],
     warnings: [],
+    onProgress: args.onProgress,
   };
 
   const messages: Message[] = [
@@ -54,6 +75,7 @@ export async function runAgentQuestion(args: {
     let toolCallCount = 0;
 
     for (let turn = 0; turn < 12; turn += 1) {
+      args.onProgress?.(`agent turn ${turn + 1}: sending request`);
       const stream = streamSimple(
         model,
         {
@@ -74,6 +96,10 @@ export async function runAgentQuestion(args: {
       for await (const event of stream) {
         if (event.type === "text_delta") {
           args.onDelta?.(event.delta);
+          continue;
+        }
+        if (event.type === "toolcall_end") {
+          args.onProgress?.(`agent requested tool ${event.toolCall.name}`);
         }
       }
 
@@ -90,6 +116,7 @@ export async function runAgentQuestion(args: {
 
       if (toolCalls.length === 0) {
         finalAnswer = assistantText(message).trim();
+        args.onProgress?.("agent produced final answer");
         usage = {
           promptTokens: message.usage.input,
           completionTokens: message.usage.output,
@@ -104,17 +131,19 @@ export async function runAgentQuestion(args: {
           throw new AppError("TOOL_LIMIT_EXCEEDED", "The agent exceeded the tool-call limit.", 400);
         }
         try {
+          args.onProgress?.(`executing tool ${toolCall.name}`);
           const result = await executeToolCall(toolCall.name, toolCall.arguments, sessionState);
           messages.push({
             role: "toolResult",
             toolCallId: toolCall.id,
             toolName: toolCall.name,
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: serializeToolResult(result) }],
             isError: false,
             timestamp: Date.now(),
           });
         } catch (error) {
           const appError = error instanceof AppError ? error : new AppError("MODEL_ERROR", String(error), 500);
+          args.onProgress?.(`tool ${toolCall.name}: failed (${appError.code})`);
           messages.push({
             role: "toolResult",
             toolCallId: toolCall.id,
@@ -159,6 +188,7 @@ export async function runAgentQuestion(args: {
       warnings: sessionState.warnings,
     };
   } finally {
+    args.onProgress?.("cleaning up worktrees");
     await cleanupRepoHandles(
       [...sessionState.repoEntries.values()].map((entry) => ({
         mirrorPath: entry.mirrorPath,

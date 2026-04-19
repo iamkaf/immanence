@@ -21,11 +21,12 @@ export async function askCommand(options: {
         refresh: options.refresh,
         maxToolCalls: options.maxToolCalls,
       },
-      (delta) => {
-        if (!options.json) process.stderr.write(delta);
+      {
+        onProgress: (message) => {
+          if (!options.json) process.stderr.write(`[immanence] ${message}\n`);
+        },
       },
     );
-    if (!options.json) process.stderr.write("\n");
     if (options.json) {
       process.stdout.write(`${JSON.stringify(response, null, 2)}\n`);
     } else {

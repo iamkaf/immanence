@@ -27,7 +27,7 @@ export function loadConfig(): ImmanenceConfig {
     staleRepoMs: 10 * 60 * 1000,
     maxReposPerRequest: 5,
     maxInferredRepos: 2,
-    defaultModel: process.env.IMMANENCE_DEFAULT_MODEL || "gpt-5.4",
+    defaultModel: process.env.IMMANENCE_DEFAULT_MODEL || "gpt-5.4-mini",
     requestTimeoutMs: 5 * 60 * 1000,
     braveApiKey: process.env.BRAVE_SEARCH_API_KEY || null,
   };
