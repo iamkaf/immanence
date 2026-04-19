@@ -99,7 +99,7 @@ npx immanence ask \
 
 | Command | Description |
 |---------|-------------|
-| `auth login` | Authenticate with GitHub |
+| `auth login` | Authenticate with Codex |
 | `auth status` | Check authentication state |
 | `auth logout` | Clear stored credentials |
 | `models` | List available models |
@@ -168,7 +168,7 @@ Natively supported. Requires `git` on PATH.
 |----------|---------|-----------------------|
 | `IMMANENCE_DATA_DIR` | Persistent data | `~/.local/share/immanence` |
 | `IMMANENCE_CACHE_DIR` | Cached snapshots | `~/.cache/immanence` |
-| `IMMANENCE_DEFAULT_MODEL` | Default model | *(built-in)* |
+| `IMMANENCE_DEFAULT_MODEL` | Default model | `gpt-5.4-mini` |
 | `BRAVE_SEARCH_API_KEY` | Web search augmentation | *(disabled)* |
 
 Repo snapshots live under `$IMMANENCE_DATA_DIR/repos/github.com/…` and are keyed by commit SHA.
@@ -187,7 +187,7 @@ npm test                # run the test suite
 npm run build           # production build
 ```
 
-Snapshots are cached by commit SHA. Refs are refreshed according to `--refresh`. Final answers always include the pinned SHA so citations stay stable over time.
+Snapshots are cached by commit SHA. Refs are refreshed according to `--refresh`. The structured response (`--json`, HTTP, MCP) always includes the pinned SHA so citations stay stable over time.
 
 ## License
 
