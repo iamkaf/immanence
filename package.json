@@ -13,7 +13,7 @@
   "homepage": "https://github.com/iamkaf/immanence#readme",
   "type": "module",
   "bin": {
-    "immanence": "./dist/cli/index.js"
+    "immanence": "dist/cli/index.js"
   },
   "files": [
     "dist",
