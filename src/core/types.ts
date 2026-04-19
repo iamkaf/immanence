@@ -1,30 +1,49 @@
+import type { Api, Model } from "@mariozechner/pi-ai";
 import { z } from "zod";
+
+export const codexProviderId = "openai-codex" as const;
 
 export const refreshModeSchema = z.enum(["never", "if-stale", "always"]);
 
-export const repoRequestSchema = z.object({
+const repoRequestSchema = z.object({
   repo: z.string().min(1),
   ref: z.string().min(1).optional(),
   alias: z.string().min(1).optional(),
 });
 
+const repoHintsSchema = z.object({
+  owner: z.string().min(1).optional(),
+  repo: z.string().min(1).optional(),
+});
+
 export const questionRequestSchema = z.object({
   question: z.string().min(1),
   repos: z.array(repoRequestSchema).max(5).optional(),
-  repoHints: z
-    .object({
-      owner: z.string().min(1).optional(),
-      repo: z.string().min(1).optional(),
-    })
-    .optional(),
+  repoHints: repoHintsSchema.optional(),
   model: z.string().min(1).optional(),
   includeWebSearch: z.boolean().optional(),
   refresh: refreshModeSchema.optional(),
   maxToolCalls: z.number().int().positive().max(100).optional(),
 });
 
+const repoCandidateSchema = z.object({
+  repo: z.string().min(1),
+  confidence: z.number(),
+  reason: z.string(),
+});
+
+const suggestedRepoRequestSchema = repoRequestSchema.pick({ repo: true });
+
+export const repoInferenceAmbiguousDetailsSchema = z.object({
+  candidates: z.array(repoCandidateSchema),
+  suggestedRequest: z.object({
+    question: questionRequestSchema.shape.question,
+    repos: z.array(suggestedRepoRequestSchema),
+  }),
+});
+
+export type CodexProviderId = typeof codexProviderId;
 export type RefreshMode = z.infer<typeof refreshModeSchema>;
-export type RepoRequest = z.infer<typeof repoRequestSchema>;
 export type QuestionRequest = z.infer<typeof questionRequestSchema>;
 
 export type ResolvedRepoInput = {
@@ -71,49 +90,50 @@ export type TraceEntry = {
   summary: string;
 };
 
+export type QuestionResponseRepo = Pick<
+  RepoHandle,
+  "repo" | "alias" | "refRequested" | "commitSha" | "defaultBranch" | "inferred"
+>;
+
+export type TokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
 export type QuestionResponse = {
   answer: string;
   model: string;
-  repos: Array<{
-    repo: string;
-    alias: string;
-    refRequested?: string;
-    commitSha: string;
-    defaultBranch?: string;
-    inferred: boolean;
-  }>;
+  repos: QuestionResponseRepo[];
   citations: Citation[];
   trace: TraceEntry[];
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
+  usage?: TokenUsage;
   warnings: string[];
 };
 
-export type RepoCandidate = {
-  repo: string;
-  confidence: number;
-  reason: string;
-};
+export type RepoInferenceAmbiguousDetails = z.infer<
+  typeof repoInferenceAmbiguousDetailsSchema
+>;
 
 export type RepoInferenceAmbiguous = {
   error: {
     code: "REPO_INFERENCE_AMBIGUOUS";
     message: string;
-    candidates: RepoCandidate[];
-    suggestedRequest: {
-      question: string;
-      repos: Array<{ repo: string }>;
-    };
-  };
+  } & RepoInferenceAmbiguousDetails;
 };
 
 export type AuthStatus = {
-  providerId: "openai-codex";
+  providerId: CodexProviderId;
   signedIn: boolean;
   expiresAt: number | null;
+};
+
+export type CodexModelSummary = Pick<
+  Model<Api>,
+  "id" | "name" | "reasoning"
+> & {
+  contextLength: Model<Api>["contextWindow"];
+  inputModalities: Model<Api>["input"];
 };
 
 export type WebSearchResult = {
@@ -122,6 +142,18 @@ export type WebSearchResult = {
   snippet: string;
   source: "brave";
 };
+
+export const sourceDiscoveryPlanSchema = z.object({
+  explicitRepos: z.array(z.string()).default([]),
+  primarySubjects: z.array(z.string()).default([]),
+  secondarySubjects: z.array(z.string()).default([]),
+  packageIdentifiers: z.array(z.string()).default([]),
+  repoQueries: z.array(z.string()).default([]),
+  likelyPaths: z.array(z.string()).default([]),
+  crossSource: z.boolean().default(false),
+});
+
+export type SourceDiscoveryPlan = z.infer<typeof sourceDiscoveryPlanSchema>;
 
 export type ProgressEvent = {
   phase: "request" | "resolve" | "repo" | "auth" | "agent" | "tool" | "cleanup";

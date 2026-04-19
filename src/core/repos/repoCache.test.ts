@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { create as createTarArchive } from "tar";
 import { describe, expect, it } from "vitest";
-import { extractSnapshotArchive } from "./repoCache.js";
+import type { ImmanenceConfig } from "../config.js";
+import { extractSnapshotArchive, prepareRepoHandle } from "./repoCache.js";
 
 async function withTempDir<T>(run: (dir: string) => Promise<T>) {
   const tempDir = await fs.mkdtemp(
@@ -53,6 +54,45 @@ describe("extractSnapshotArchive", () => {
 
       const siblings = await fs.readdir(path.dirname(snapshotPath));
       expect(siblings).toEqual(["abcdef123456"]);
+    });
+  });
+
+  it("fails explicitly when cached resolution metadata is malformed", async () => {
+    await withTempDir(async (tempDir) => {
+      const config: ImmanenceConfig = {
+        dataDir: path.join(tempDir, "data"),
+        cacheDir: path.join(tempDir, "cache"),
+        authFilePath: path.join(tempDir, "auth.json"),
+        reposDir: path.join(tempDir, "repos", "github.com"),
+        runsDir: path.join(tempDir, "runs"),
+        staleRepoMs: 60_000,
+        maxReposPerRequest: 5,
+        maxInferredRepos: 2,
+        defaultModel: "gpt-5.4-mini",
+        requestTimeoutMs: 300_000,
+        braveApiKey: null,
+      };
+      const repoRoot = path.join(config.reposDir, "owner", "repo");
+      const resolutionPath = path.join(repoRoot, "refs", "HEAD.json");
+
+      await fs.mkdir(path.dirname(resolutionPath), { recursive: true });
+      await fs.writeFile(resolutionPath, JSON.stringify({ fetchedAt: "bad" }));
+
+      await expect(
+        prepareRepoHandle({
+          input: {
+            repo: "owner/repo",
+            owner: "owner",
+            name: "repo",
+            alias: "repo",
+            inferred: false,
+          },
+          config,
+          refresh: "never",
+        }),
+      ).rejects.toThrow(
+        `Invalid cached resolution metadata: ${resolutionPath}`,
+      );
     });
   });
 });

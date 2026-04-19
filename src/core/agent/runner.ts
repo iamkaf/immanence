@@ -1,17 +1,16 @@
-import { randomUUID } from "node:crypto";
 import {
   streamSimple,
   type AssistantMessage,
   type Message,
 } from "@mariozechner/pi-ai";
 import type { ImmanenceConfig } from "../config.js";
-import { AppError } from "../errors.js";
+import { AppError, stringifyAppError } from "../errors.js";
 import type {
   ProgressEvent,
   QuestionRequest,
   QuestionResponse,
-  RefreshMode,
   RepoHandle,
+  SourceDiscoveryPlan,
 } from "../types.js";
 import { dedupeCitations, summarizeTrace } from "./transcript.js";
 import { buildSystemPrompt } from "./prompts.js";
@@ -20,24 +19,10 @@ import { buildAgentTools } from "./toolSpecs.js";
 import { executeToolCall, type AgentSessionState } from "./toolExecutor.js";
 import { resolveCodexApiKey, resolveCodexModel } from "../auth/codexAuth.js";
 import { cleanupRepoHandles } from "../repos/repoCache.js";
-import type { SourceDiscoveryPlan } from "../repos/sourcePlanner.js";
+import { assistantText } from "../../util/piAi.js";
 
 const MAX_TOOL_RESULT_CHARS = 200_000;
 const MAX_AGENT_TURNS = 12;
-
-function assistantText(message: AssistantMessage) {
-  return message.content
-    .filter(
-      (
-        item,
-      ): item is Extract<
-        AssistantMessage["content"][number],
-        { type: "text" }
-      > => item.type === "text",
-    )
-    .map((item) => item.text)
-    .join("");
-}
 
 function serializeToolResult(result: unknown) {
   const json = JSON.stringify(result, null, 2);
@@ -152,12 +137,10 @@ export async function runAgentQuestion(args: {
   });
   args.onProgress?.({ phase: "auth", message: "resolving API key" });
   const apiKey = await resolveCodexApiKey(args.config.authFilePath);
-  const requestId = randomUUID();
 
   const sessionState: AgentSessionState = {
     config: args.config,
-    requestId,
-    refresh: (args.request.refresh ?? "if-stale") as RefreshMode,
+    refresh: args.request.refresh ?? "if-stale",
     repoEntries: new Map(
       args.repos.map((entry) => [entry.handle.repoId, entry]),
     ),
@@ -313,13 +296,7 @@ export async function runAgentQuestion(args: {
             content: [
               {
                 type: "text",
-                text: JSON.stringify({
-                  error: {
-                    code: appError.code,
-                    message: appError.message,
-                    details: appError.details,
-                  },
-                }),
+                text: stringifyAppError(appError),
               },
             ],
             isError: true,

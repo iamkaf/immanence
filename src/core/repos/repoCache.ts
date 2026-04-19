@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { extract as extractTarArchive } from "tar";
+import { z } from "zod";
 import type { ImmanenceConfig } from "../config.js";
 import { AppError } from "../errors.js";
 import type {
@@ -10,7 +11,12 @@ import type {
   RepoHandle,
   ResolvedRepoInput,
 } from "../types.js";
-import { ensureDir, pathExists, sanitizePathSegment } from "../../util/fs.js";
+import {
+  ensureDir,
+  isMissingPathError,
+  pathExists,
+  sanitizePathSegment,
+} from "../../util/fs.js";
 import {
   execCommand,
   execCommandOrThrow,
@@ -31,7 +37,18 @@ type CachedResolution = {
   resolvedRef: string;
 };
 
+const cachedResolutionSchema = z.object({
+  fetchedAt: z.number(),
+  defaultBranch: z.string(),
+  commitSha: z.string(),
+  resolvedRef: z.string(),
+});
+
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
+
+function hasErrorCode(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error;
+}
 
 function parseDefaultBranch(raw: string) {
   const match = raw.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m);
@@ -65,25 +82,18 @@ function pickResolvedSha(raw: string, ref: string) {
 async function readCachedResolution(
   metadataPath: string,
 ): Promise<CachedResolution | null> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(metadataPath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<CachedResolution>;
-    if (
-      typeof parsed.fetchedAt !== "number" ||
-      typeof parsed.defaultBranch !== "string" ||
-      typeof parsed.commitSha !== "string" ||
-      typeof parsed.resolvedRef !== "string"
-    ) {
-      return null;
-    }
-    return {
-      fetchedAt: parsed.fetchedAt,
-      defaultBranch: parsed.defaultBranch,
-      commitSha: parsed.commitSha,
-      resolvedRef: parsed.resolvedRef,
-    };
+    raw = await fs.readFile(metadataPath, "utf8");
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  }
+
+  try {
+    return cachedResolutionSchema.parse(JSON.parse(raw));
   } catch {
-    return null;
+    throw new Error(`Invalid cached resolution metadata: ${metadataPath}`);
   }
 }
 
@@ -238,33 +248,14 @@ export async function extractSnapshotArchive(args: {
     }
     await ensureDir(path.dirname(args.snapshotPath));
     await fs.rename(partialPath, args.snapshotPath).catch(async (error) => {
-      const code =
-        typeof error === "object" && error && "code" in error
-          ? String(error.code)
-          : "";
+      const code = hasErrorCode(error) ? String(error.code) : "";
       if (code !== "EEXIST") throw error;
       await fs.rm(partialPath, { recursive: true, force: true });
     });
   } finally {
-    await fs
-      .rm(partialPath, { recursive: true, force: true })
-      .catch(() => undefined);
-    await fs.rm(args.archivePath, { force: true }).catch(() => undefined);
+    await fs.rm(partialPath, { recursive: true, force: true });
+    await fs.rm(args.archivePath, { force: true });
   }
-}
-
-async function removeLegacyMirror(
-  legacyMirrorPath: string,
-  onProgress?: (event: ProgressEvent) => void,
-  repo?: string,
-) {
-  if (!(await pathExists(legacyMirrorPath))) return;
-  onProgress?.({
-    phase: "repo",
-    repo,
-    message: "removing legacy mirror cache",
-  });
-  await fs.rm(legacyMirrorPath, { recursive: true, force: true });
 }
 
 async function prepareSnapshot(
@@ -274,11 +265,6 @@ async function prepareSnapshot(
   onProgress?: (event: ProgressEvent) => void,
 ): Promise<PreparedSnapshot> {
   const repoRoot = path.join(config.reposDir, input.owner, input.name);
-  const legacyMirrorPath = path.join(
-    config.reposDir,
-    input.owner,
-    `${input.name}.git`,
-  );
   const resolutionPath = path.join(
     repoRoot,
     "refs",
@@ -338,8 +324,6 @@ async function prepareSnapshot(
     });
   }
 
-  await removeLegacyMirror(legacyMirrorPath, onProgress, input.repo);
-
   return {
     snapshotPath,
     defaultBranch: cached.defaultBranch,
@@ -351,7 +335,6 @@ export async function prepareRepoHandle(args: {
   input: ResolvedRepoInput;
   config: ImmanenceConfig;
   refresh: RefreshMode;
-  requestId?: string;
   onProgress?: (event: ProgressEvent) => void;
 }) {
   args.onProgress?.({

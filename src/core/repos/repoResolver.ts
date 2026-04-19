@@ -1,11 +1,10 @@
 import { AppError } from "../errors.js";
 import type {
-  ProgressEvent,
   QuestionRequest,
   ResolvedRepoInput,
+  SourceDiscoveryPlan,
 } from "../types.js";
 import { parseGitHubRepo } from "./github.js";
-import type { SourceDiscoveryPlan } from "./sourcePlanner.js";
 
 function unique<T>(values: Iterable<T>) {
   return [...new Set(values)];
@@ -57,7 +56,6 @@ function normalizeRepoGuesses(repos: string[], inferred: boolean) {
 export async function resolveRepos(
   request: QuestionRequest,
   options: {
-    onProgress?: (event: ProgressEvent) => void;
     plannerHints?: SourceDiscoveryPlan | null;
   } = {},
 ): Promise<ResolvedRepoInput[]> {

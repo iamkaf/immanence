@@ -1,51 +1,18 @@
-import {
-  streamSimple,
-  type AssistantMessage,
-  type Message,
-} from "@mariozechner/pi-ai";
+import { streamSimple, type Message } from "@mariozechner/pi-ai";
 import type { ImmanenceConfig } from "../config.js";
+import {
+  sourceDiscoveryPlanSchema,
+  type SourceDiscoveryPlan,
+} from "../types.js";
 import { resolveCodexApiKey, resolveCodexModel } from "../auth/codexAuth.js";
-import { safeJsonParse } from "../../util/json.js";
+import { assistantText } from "../../util/piAi.js";
 
-export type SourceDiscoveryPlan = {
-  explicitRepos: string[];
-  primarySubjects: string[];
-  secondarySubjects: string[];
-  packageIdentifiers: string[];
-  repoQueries: string[];
-  likelyPaths: string[];
-  crossSource: boolean;
-};
-
-const EMPTY_PLAN: SourceDiscoveryPlan = {
-  explicitRepos: [],
-  primarySubjects: [],
-  secondarySubjects: [],
-  packageIdentifiers: [],
-  repoQueries: [],
-  likelyPaths: [],
-  crossSource: false,
-};
-
-function assistantText(message: AssistantMessage) {
-  return message.content
-    .filter(
-      (
-        item,
-      ): item is Extract<
-        AssistantMessage["content"][number],
-        { type: "text" }
-      > => item.type === "text",
-    )
-    .map((item) => item.text)
-    .join("");
-}
+const EMPTY_PLAN: SourceDiscoveryPlan = sourceDiscoveryPlanSchema.parse({});
 
 function parsePlannerJson(raw: string) {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return safeJsonParse<SourceDiscoveryPlan>(
-    (fenced?.[1] ?? raw).trim(),
-    EMPTY_PLAN,
+  return sourceDiscoveryPlanSchema.parse(
+    JSON.parse((fenced?.[1] ?? raw).trim()),
   );
 }
 
@@ -103,13 +70,8 @@ export async function planSourcesWithAi(args: {
 
     const parsed = parsePlannerJson(assistantText(message));
     return {
-      explicitRepos: parsed.explicitRepos ?? [],
-      primarySubjects: parsed.primarySubjects ?? [],
-      secondarySubjects: parsed.secondarySubjects ?? [],
-      packageIdentifiers: parsed.packageIdentifiers ?? [],
-      repoQueries: parsed.repoQueries ?? [],
-      likelyPaths: parsed.likelyPaths ?? [],
-      crossSource: !!parsed.crossSource,
+      ...EMPTY_PLAN,
+      ...parsed,
     };
   } catch {
     return null;

@@ -1,6 +1,6 @@
 import { AppError } from "../errors.js";
 
-export type GitHubRepo = {
+type GitHubRepo = {
   owner: string;
   name: string;
   repo: string;

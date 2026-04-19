@@ -1,15 +1,22 @@
 import { AppError } from "../errors.js";
 import type { WebSearchResult } from "../types.js";
+import { z } from "zod";
 
-type BraveSearchResponse = {
-  web?: {
-    results?: Array<{
-      title?: string;
-      url?: string;
-      description?: string;
-    }>;
-  };
-};
+const braveSearchResponseSchema = z.object({
+  web: z
+    .object({
+      results: z
+        .array(
+          z.object({
+            title: z.string().optional(),
+            url: z.string().optional(),
+            description: z.string().optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+});
 
 export async function braveWebSearch(
   apiKey: string,
@@ -35,13 +42,17 @@ export async function braveWebSearch(
     );
   }
 
-  const payload = (await response.json()) as BraveSearchResponse;
-  return (payload.web?.results ?? [])
-    .filter((entry) => entry.title && entry.url)
-    .map((entry) => ({
-      title: entry.title ?? entry.url ?? "Untitled",
-      url: entry.url ?? "",
-      snippet: entry.description ?? "",
-      source: "brave" as const,
-    }));
+  const payload = braveSearchResponseSchema.parse(await response.json());
+  return (payload.web?.results ?? []).flatMap((entry): WebSearchResult[] =>
+    entry.title && entry.url
+      ? [
+          {
+            title: entry.title,
+            url: entry.url,
+            snippet: entry.description ?? "",
+            source: "brave",
+          },
+        ]
+      : [],
+  );
 }

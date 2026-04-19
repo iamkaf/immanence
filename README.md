@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Immanence — answers that live inside the code" width="720" />
+  <img src="assets/banner.png" alt="Immanence banner" width="720" />
 </p>
 
 <h1 align="center">Immanence</h1>
@@ -19,10 +19,10 @@
 
 ---
 
-Immanence resolves a repo, pins a commit, downloads a cached source snapshot, and lets an AI agent inspect the code to answer your question — complete with file-level citations tied to a specific commit so they never go stale.
+Immanence resolves a repo, pins a commit, downloads a cached source snapshot, and answers your question with file-level citations tied to that commit.
 
 > **im·ma·nence** */ˈimənəns/*
-> The quality of being contained within; inherent. Here, the answers come from the codebase itself — not from approximations or training data.
+> The quality of being contained within; inherent. Here, answers come from the pinned codebase itself.
 
 ## How It Works
 
@@ -35,7 +35,7 @@ Immanence resolves a repo, pins a commit, downloads a cached source snapshot, an
        ↓
  Source snapshot is downloaded & cached locally
        ↓
- An AI agent inspects the code with tool calls
+ The agent inspects the code with tool calls
        ↓
  You get an answer with file + line citations
 ```

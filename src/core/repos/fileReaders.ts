@@ -4,11 +4,7 @@ import { minimatch } from "minimatch";
 import type { FileCitation, RepoHandle } from "../types.js";
 import { AppError } from "../errors.js";
 import { normalizeRepoPath, toRepoPath } from "../../util/fs.js";
-import {
-  execCommand,
-  execCommandOrThrow,
-  hasCommand,
-} from "../../util/process.js";
+import { execCommand, hasCommand } from "../../util/process.js";
 
 const MAX_READ_BYTES = 64 * 1024;
 
@@ -332,11 +328,4 @@ export async function searchRepo(
     );
   }
   return await searchRepoWithNode(handle, query, normalizedArgs, maxResults);
-}
-
-export async function repoTopLevelFiles(handle: RepoHandle) {
-  const result = await execCommandOrThrow("git", ["ls-files"], {
-    cwd: handle.workspacePath,
-  });
-  return result.stdout.trim().split("\n").filter(Boolean).slice(0, 1000);
 }

@@ -10,9 +10,7 @@ import { serveMcpCommand } from "./commands/serveMcp.js";
 
 const program = new Command();
 
-program
-  .name("immanence")
-  .description("AI-powered codebase exploration utility.");
+program.name("immanence").description("Codebase exploration utility.");
 
 const auth = program
   .command("auth")

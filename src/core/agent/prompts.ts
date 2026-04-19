@@ -1,5 +1,4 @@
-import type { RepoHandle } from "../types.js";
-import type { SourceDiscoveryPlan } from "../repos/sourcePlanner.js";
+import type { RepoHandle, SourceDiscoveryPlan } from "../types.js";
 
 export function buildSystemPrompt(args: {
   repos: RepoHandle[];

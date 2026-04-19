@@ -1,9 +1,10 @@
 import { listCodexModels } from "../../core/auth/codexAuth.js";
+import { writeJson } from "./shared.js";
 
 export async function modelsCommand(options: { json?: boolean } = {}) {
   const models = await listCodexModels();
   if (options.json) {
-    process.stdout.write(`${JSON.stringify(models, null, 2)}\n`);
+    writeJson(models);
     return;
   }
 

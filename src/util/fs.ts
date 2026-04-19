@@ -1,5 +1,13 @@
 import fs from "node:fs/promises";
-import path from "node:path";
+
+function hasErrorCode(error: unknown, codes: string[]) {
+  if (typeof error !== "object" || !error || !("code" in error)) return false;
+  return codes.includes(String(error.code));
+}
+
+export function isMissingPathError(error: unknown) {
+  return hasErrorCode(error, ["ENOENT", "ENOTDIR"]);
+}
 
 export async function ensureDir(dirPath: string) {
   await fs.mkdir(dirPath, { recursive: true });
@@ -9,13 +17,10 @@ export async function pathExists(targetPath: string) {
   try {
     await fs.access(targetPath);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isMissingPathError(error)) return false;
+    throw error;
   }
-}
-
-export function joinPath(...parts: string[]) {
-  return path.join(...parts);
 }
 
 export function normalizeRepoPath(input: string | undefined) {
@@ -31,17 +36,4 @@ export function sanitizePathSegment(input: string) {
   return (
     input.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "item"
   );
-}
-
-export async function writeTextFile(
-  targetPath: string,
-  content: string,
-  mode?: number,
-) {
-  await ensureDir(path.dirname(targetPath));
-  await fs.writeFile(targetPath, content, { encoding: "utf8", mode });
-}
-
-export async function readTextFile(targetPath: string) {
-  return await fs.readFile(targetPath, "utf8");
 }

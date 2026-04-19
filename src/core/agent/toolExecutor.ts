@@ -25,7 +25,6 @@ type SessionRepoEntry = {
 
 export type AgentSessionState = {
   config: ImmanenceConfig;
-  requestId: string;
   refresh: RefreshMode;
   repoEntries: Map<string, SessionRepoEntry>;
   citations: Citation[];
@@ -129,7 +128,7 @@ async function cloneRepo(
   state: AgentSessionState,
   repo: string,
   ref?: string,
-  refresh?: string,
+  refresh?: RefreshMode,
 ) {
   const parsed = parseGitHubRepo(repo);
   for (const entry of state.repoEntries.values()) {
@@ -172,8 +171,7 @@ async function cloneRepo(
   const prepared = await prepareRepoHandle({
     input,
     config: state.config,
-    refresh: (refresh as RefreshMode | undefined) ?? state.refresh,
-    requestId: state.requestId,
+    refresh: refresh ?? state.refresh,
     onProgress: state.onProgress,
   });
   state.repoEntries.set(prepared.handle.repoId, prepared);
@@ -204,7 +202,11 @@ export async function executeToolCall(
         state,
         String(rawArgs.repo ?? ""),
         typeof rawArgs.ref === "string" ? rawArgs.ref : undefined,
-        typeof rawArgs.refresh === "string" ? rawArgs.refresh : undefined,
+        rawArgs.refresh === "never" ||
+          rawArgs.refresh === "if-stale" ||
+          rawArgs.refresh === "always"
+          ? rawArgs.refresh
+          : undefined,
       );
       state.onProgress?.({
         phase: "tool",

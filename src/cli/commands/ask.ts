@@ -1,9 +1,11 @@
 import { answerQuestion } from "../../core/service.js";
-import { AppError } from "../../core/errors.js";
+import { AppError, stringifyAppError } from "../../core/errors.js";
+import type { RefreshMode } from "../../core/types.js";
 import {
   formatProgressEvent,
   shouldDisplayProgressEvent,
 } from "../../util/progress.js";
+import { writeJson } from "./shared.js";
 
 export async function askCommand(options: {
   question: string;
@@ -11,7 +13,7 @@ export async function askCommand(options: {
   ref?: string;
   model?: string;
   includeWebSearch?: boolean;
-  refresh?: "never" | "if-stale" | "always";
+  refresh?: RefreshMode;
   maxToolCalls?: number;
   json?: boolean;
 }) {
@@ -33,31 +35,13 @@ export async function askCommand(options: {
       },
     );
     if (options.json) {
-      process.stdout.write(`${JSON.stringify(response, null, 2)}\n`);
+      writeJson(response);
     } else {
       process.stdout.write(`${response.answer}\n`);
     }
   } catch (error) {
     if (error instanceof AppError) {
-      const payload =
-        error.code === "REPO_INFERENCE_AMBIGUOUS"
-          ? {
-              error: {
-                code: error.code,
-                message: error.message,
-                ...(typeof error.details === "object" && error.details
-                  ? error.details
-                  : {}),
-              },
-            }
-          : {
-              error: {
-                code: error.code,
-                message: error.message,
-                details: error.details,
-              },
-            };
-      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+      process.stdout.write(`${stringifyAppError(error)}\n`);
       process.exitCode = 1;
       return;
     }

@@ -9,15 +9,18 @@ import {
   getOAuthApiKey,
   type OAuthCredentials,
 } from "@mariozechner/pi-ai/oauth";
-import type { AuthStatus } from "../types.js";
+import { z } from "zod";
+import {
+  codexProviderId,
+  type AuthStatus,
+  type CodexModelSummary,
+} from "../types.js";
 import { AppError } from "../errors.js";
 import {
   clearStoredCredentials,
   readAuthStore,
   setStoredCredentials,
 } from "./authStore.js";
-
-const PROVIDER_ID = "openai-codex" as const;
 
 function resolvePiAiCliPath() {
   let currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -43,21 +46,25 @@ function resolvePiAiCliPath() {
   }
 }
 
-type PiCliAuthFile = Record<
-  string,
-  {
-    type?: string;
-    access?: string;
-    refresh?: string;
-    expires?: number;
-    [key: string]: unknown;
-  }
->;
+const piCliCredentialSchema = z
+  .object({
+    type: z.string().optional(),
+    access: z.string().optional(),
+    refresh: z.string().optional(),
+    expires: z.number().optional(),
+  })
+  .catchall(z.unknown());
+
+const piCliAuthFileSchema = z.record(z.string(), piCliCredentialSchema);
+
+function hasErrorCode(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error;
+}
 
 async function runPiAiLogin(tempDir: string) {
   const cliPath = resolvePiAiCliPath();
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(process.execPath, [cliPath, "login", PROVIDER_ID], {
+    const child = spawn(process.execPath, [cliPath, "login", codexProviderId], {
       cwd: tempDir,
       stdio: "inherit",
     });
@@ -79,18 +86,13 @@ async function loadPiAiCredentials(tempDir: string): Promise<OAuthCredentials> {
   try {
     raw = await fs.readFile(authPath, "utf8");
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (hasErrorCode(error) && error.code === "ENOENT") {
       throw new Error("Codex login canceled before credentials were saved.");
     }
     throw error;
   }
-  const parsed = JSON.parse(raw) as PiCliAuthFile;
-  const credentials = parsed[PROVIDER_ID];
+  const parsed = piCliAuthFileSchema.parse(JSON.parse(raw));
+  const credentials = parsed[codexProviderId];
   if (
     !credentials ||
     typeof credentials.access !== "string" ||
@@ -108,9 +110,9 @@ async function loadPiAiCredentials(tempDir: string): Promise<OAuthCredentials> {
 
 export async function getAuthStatus(authFilePath: string): Promise<AuthStatus> {
   const store = await readAuthStore(authFilePath);
-  const credentials = store.providers[PROVIDER_ID];
+  const credentials = store.providers[codexProviderId];
   return {
-    providerId: PROVIDER_ID,
+    providerId: codexProviderId,
     signedIn: !!credentials,
     expiresAt:
       typeof credentials?.expires === "number" ? credentials.expires : null,
@@ -127,9 +129,7 @@ export async function loginCodex(authFilePath: string) {
     await setStoredCredentials(authFilePath, credentials);
     return await getAuthStatus(authFilePath);
   } finally {
-    await fs
-      .rm(tempDir, { recursive: true, force: true })
-      .catch(() => undefined);
+    await fs.rm(tempDir, { recursive: true, force: true });
   }
 }
 
@@ -140,7 +140,7 @@ export async function logoutCodex(authFilePath: string) {
 
 export async function resolveCodexApiKey(authFilePath: string) {
   const store = await readAuthStore(authFilePath);
-  const resolved = await getOAuthApiKey(PROVIDER_ID, store.providers);
+  const resolved = await getOAuthApiKey(codexProviderId, store.providers);
   if (!resolved) {
     throw new AppError(
       "AUTH_REQUIRED",
@@ -160,8 +160,8 @@ function normalizeModelId(modelId: string | undefined) {
   return raw;
 }
 
-export async function listCodexModels() {
-  return getModels(PROVIDER_ID).map((model) => ({
+export async function listCodexModels(): Promise<CodexModelSummary[]> {
+  return getModels(codexProviderId).map((model) => ({
     id: model.id,
     name: model.name,
     contextLength: model.contextWindow,
@@ -172,10 +172,23 @@ export async function listCodexModels() {
 
 export async function resolveCodexModel(modelId?: string) {
   const normalized = normalizeModelId(modelId);
-  const models = getModels(PROVIDER_ID);
-  return (
-    models.find((entry) => entry.id === normalized) ??
-    models.find((entry) => entry.id === "gpt-5.4") ??
-    models[0]
+  const models = getModels(codexProviderId);
+  if (models.length === 0) {
+    throw new AppError("MODEL_ERROR", "No Codex models are available.", 500);
+  }
+
+  const resolved = models.find((entry) => entry.id === normalized);
+  if (resolved) return resolved;
+
+  throw new AppError(
+    modelId?.trim() ? "INVALID_REQUEST" : "MODEL_ERROR",
+    modelId?.trim()
+      ? `Unknown Codex model: ${modelId}.`
+      : `Configured default model is unavailable: ${normalized}.`,
+    modelId?.trim() ? 400 : 500,
+    {
+      requestedModel: normalized,
+      availableModels: models.map((entry) => entry.id),
+    },
   );
 }

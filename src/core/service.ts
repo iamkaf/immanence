@@ -1,12 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { loadConfig } from "./config.js";
-import { AppError, toAppError } from "./errors.js";
+import { toAppError } from "./errors.js";
 import {
   questionRequestSchema,
   type ProgressEvent,
-  type QuestionRequest,
   type QuestionResponse,
-  type RepoInferenceAmbiguous,
 } from "./types.js";
 import { resolveRepos } from "./repos/repoResolver.js";
 import { planSourcesWithAi } from "./repos/sourcePlanner.js";
@@ -21,10 +18,10 @@ export async function answerQuestion(
   } = {},
 ): Promise<QuestionResponse> {
   const config = loadConfig();
-  const request = questionRequestSchema.parse(rawRequest) as QuestionRequest;
-  const refresh = request.refresh ?? "if-stale";
 
   try {
+    const request = questionRequestSchema.parse(rawRequest);
+    const refresh = request.refresh ?? "if-stale";
     hooks.onProgress?.({ phase: "request", message: "validated request" });
     hooks.onProgress?.({ phase: "resolve", message: "planning sources" });
     const plannerHints =
@@ -38,7 +35,7 @@ export async function answerQuestion(
     if (plannerHints) {
       hooks.onProgress?.({
         phase: "resolve",
-        message: "AI source plan ready",
+        message: "source plan ready",
         detail: [
           ...plannerHints.primarySubjects,
           ...plannerHints.secondarySubjects,
@@ -46,16 +43,12 @@ export async function answerQuestion(
         ].join(", "),
       });
     }
-    const resolvedRepos = await resolveRepos(request, {
-      onProgress: hooks.onProgress,
-      plannerHints,
-    });
+    const resolvedRepos = await resolveRepos(request, { plannerHints });
     hooks.onProgress?.({
       phase: "resolve",
       message: "resolved repositories",
       detail: resolvedRepos.map((repo) => repo.repo).join(", "),
     });
-    const requestId = randomUUID();
     const preparedRepos = await Promise.all(
       resolvedRepos.map(
         async (repo) =>
@@ -63,7 +56,6 @@ export async function answerQuestion(
             input: repo,
             config,
             refresh,
-            requestId,
             onProgress: hooks.onProgress,
           }),
       ),
@@ -79,19 +71,6 @@ export async function answerQuestion(
       onProgress: hooks.onProgress,
     });
   } catch (error) {
-    const appError = toAppError(error);
-    if (appError.code === "REPO_INFERENCE_AMBIGUOUS") {
-      const details = (appError.details ?? {
-        candidates: [],
-        suggestedRequest: { question: request.question, repos: [] },
-      }) as RepoInferenceAmbiguous["error"];
-      throw new AppError(appError.code, appError.message, appError.statusCode, {
-        code: "REPO_INFERENCE_AMBIGUOUS",
-        message: appError.message,
-        candidates: details.candidates,
-        suggestedRequest: details.suggestedRequest,
-      });
-    }
-    throw appError;
+    throw toAppError(error);
   }
 }
