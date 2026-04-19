@@ -1,5 +1,11 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Immanence banner" width="720" />
+  <img src="assets/banner.png" alt="Immanence banner" width="480" />
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a78bfa?style=for-the-badge&labelColor=1a1a2e" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A520-5eead4?style=for-the-badge&logo=node.js&logoColor=5eead4&labelColor=1a1a2e" alt="Node 20+" />
+  <a href="https://www.npmjs.com/package/immanence"><img src="https://img.shields.io/npm/v/immanence?style=for-the-badge&color=fbbf24&logo=npm&logoColor=fbbf24&labelColor=1a1a2e" alt="npm" /></a>
 </p>
 
 <h1 align="center">Immanence</h1>
