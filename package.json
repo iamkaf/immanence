@@ -1,0 +1,33 @@
+{
+  "name": "immanence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered codebase exploration utility with HTTP, CLI, and MCP interfaces.",
+  "type": "module",
+  "bin": {
+    "immanence": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli/index.ts",
+    "serve:http": "tsx src/cli/index.ts serve http",
+    "serve:mcp": "tsx src/cli/index.ts serve mcp",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "^0.67.68",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^14.0.3",
+    "fastify": "^5.8.5",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.4"
+  }
+}
