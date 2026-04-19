@@ -1,6 +1,9 @@
 import { answerQuestion } from "../../core/service.js";
 import { AppError } from "../../core/errors.js";
-import { formatProgressEvent } from "../../util/progress.js";
+import {
+  formatProgressEvent,
+  shouldDisplayProgressEvent,
+} from "../../util/progress.js";
 
 export async function askCommand(options: {
   question: string;
@@ -24,7 +27,7 @@ export async function askCommand(options: {
       },
       {
         onProgress: (event) => {
-          if (!options.json)
+          if (!options.json && shouldDisplayProgressEvent(event))
             process.stderr.write(`${formatProgressEvent(event)}\n`);
         },
       },

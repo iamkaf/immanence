@@ -31,6 +31,48 @@ function levelPrefix(level: ProgressEvent["level"]) {
   }
 }
 
+export function shouldDisplayProgressEvent(event: ProgressEvent) {
+  if (event.phase === "auth" || event.phase === "cleanup") {
+    return false;
+  }
+
+  if (
+    event.phase === "request" &&
+    event.message === "validated request"
+  ) {
+    return false;
+  }
+
+  if (
+    event.phase === "agent" &&
+    [
+      "starting agent",
+      "resolving model",
+      "using model",
+      "produced final answer",
+    ].includes(event.message)
+  ) {
+    return false;
+  }
+
+  if (
+    event.phase === "tool" &&
+    ["starting", "executing", "completed"].includes(event.message)
+  ) {
+    return false;
+  }
+
+  if (
+    event.phase === "tool" &&
+    event.level === "error" &&
+    ["PATH_NOT_FOUND", "INVALID_REQUEST"].includes(event.detail ?? "")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export function formatProgressEvent(event: ProgressEvent) {
   const parts = [
     styleText("gray", "["),

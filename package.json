@@ -1,21 +1,35 @@
 {
   "name": "immanence",
   "version": "0.1.0",
-  "private": true,
   "description": "AI-powered codebase exploration utility with HTTP, CLI, and MCP interfaces.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iamkaf/immanence.git"
+  },
+  "bugs": {
+    "url": "https://github.com/iamkaf/immanence/issues"
+  },
+  "homepage": "https://github.com/iamkaf/immanence#readme",
   "type": "module",
   "bin": {
     "immanence": "./dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
     "dev": "tsx src/cli/index.ts",
     "lint": "oxlint . --ignore-pattern dist --ignore-pattern node_modules",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "serve:http": "tsx src/cli/index.ts serve http",
     "serve:mcp": "tsx src/cli/index.ts serve mcp",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=20"

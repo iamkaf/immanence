@@ -1,120 +1,66 @@
 # Immanence
 
-Immanence is a local AI-powered codebase exploration utility. It answers questions about public GitHub repositories by:
+Local codebase Q&A for public GitHub repositories.
 
-1. Resolving or accepting repository targets
-2. Resolving the target commit SHA
-3. Downloading or reusing cached source snapshots
-4. Letting a Codex-backed agent inspect the code with bespoke tools
-5. Returning an answer with citations and a tool trace
+Immanence resolves a repo, pins a commit, downloads a cached source snapshot, lets a Codex-backed agent inspect the code, and returns an answer with citations.
 
-It exposes three interfaces over the same core engine:
+The name means something being present within rather than outside. Here, the answers come from the codebase itself.
 
-- CLI
-- HTTP API
-- MCP server
+## User Guide
 
-## Status
-
-This is an MVP. The current implementation supports:
-
-- Public GitHub repositories only
-- OpenAI Codex auth via `@mariozechner/pi-ai`
-- Hybrid repo selection:
-  - explicit repos
-  - best-effort inference from question text
-- Read-only agent tools:
-  - `clone`
-  - `list`
-  - `read`
-  - `search`
-  - `web_search`
-- CLI, HTTP, and stdio MCP entrypoints
-
-Out of scope in the current build:
-
-- Private GitHub repos
-- Chat/session memory
-- Repo mutation or patching
-- Browser UI
-- Multi-user deployment
-
-## Requirements
+### Requirements
 
 - Node.js 20+
 - `git`
 - `tar`
-- `rg` (`ripgrep`) on `PATH`
+- `rg`
 
 Optional:
 
-- `BRAVE_SEARCH_API_KEY` to enable `web_search`
+- `BRAVE_SEARCH_API_KEY` for `--include-web-search`
 
-## Install
+### Install
 
 ```bash
 npm install
 npm run build
 ```
 
-For local development:
+### Sign in
 
 ```bash
-npm run dev -- --help
+npx immanence auth login
+npx immanence auth status
 ```
 
-## Quickstart
+### Ask a question
 
-### 1. Sign in to Codex
+Explicit repo:
 
 ```bash
-node dist/cli/index.js auth login
+npx immanence ask \
+  --repo honojs/hono \
+  --question "How does the router match params and wildcards?"
 ```
 
-Check auth status:
+Repo inference:
 
 ```bash
-node dist/cli/index.js auth status
+npx immanence ask \
+  --question "Where does Next take its list of Google fonts from?"
 ```
 
-### 2. Ask a question
-
-With explicit repos:
+JSON output:
 
 ```bash
-node dist/cli/index.js ask \
-  --repo openclaw/openclaw \
-  --question "How is OpenClaw able to sync Codex credentials?"
-```
-
-With repo inference:
-
-```bash
-node dist/cli/index.js ask \
-  --question "How do I get started with json-render?"
-```
-
-Structured JSON output:
-
-```bash
-node dist/cli/index.js ask \
+npx immanence ask \
   --question "Where does Next take its list of Google fonts from?" \
   --json
 ```
 
-Enable web search when needed:
+### CLI
 
-```bash
-BRAVE_SEARCH_API_KEY=... \
-node dist/cli/index.js ask \
-  --question "What changed recently in this project?" \
-  --repo owner/repo \
-  --include-web-search
-```
-
-## CLI
-
-Top-level commands:
+Commands:
 
 - `auth login`
 - `auth status`
@@ -124,33 +70,25 @@ Top-level commands:
 - `serve http`
 - `serve mcp`
 
-### `ask`
+`ask` options:
 
-```text
-immanence ask --question <question> [options]
-```
+- `--repo <repo...>` explicit GitHub repos
+- `--ref <ref>` branch, tag, or commit for explicit repos
+- `--model <model>` model override
+- `--include-web-search` enable Brave-backed web search
+- `--refresh <mode>` `never`, `if-stale`, or `always`
+- `--max-tool-calls <count>` tool-call cap
+- `--json` emit the full response envelope
 
-Options:
+### HTTP
 
-- `--repo <repo...>`: explicit GitHub repos
-- `--ref <ref>`: optional branch, tag, or commit
-- `--model <model>`: override the default model
-- `--include-web-search`: enable Brave-backed web search
-- `--refresh <mode>`: `never`, `if-stale`, or `always`
-- `--max-tool-calls <count>`: cap the tool loop
-- `--json`: emit the full response envelope instead of plain answer text
-
-## HTTP API
-
-Start the server:
+Start:
 
 ```bash
 npm run serve:http
 ```
 
-Default bind:
-
-- `127.0.0.1:8787`
+Default address: `127.0.0.1:8787`
 
 Endpoints:
 
@@ -159,133 +97,70 @@ Endpoints:
 - `GET /v1/models`
 - `POST /v1/questions`
 
-Example request:
+Example:
 
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/questions \
   -H 'content-type: application/json' \
   -d '{
-    "question": "How is OpenClaw able to sync Codex credentials?",
-    "repos": [{ "repo": "openclaw/openclaw" }]
+    "question": "How does the router match params and wildcards?",
+    "repos": [{ "repo": "honojs/hono" }]
   }'
 ```
 
-Example inferred-repo request:
+### MCP
 
-```bash
-curl -X POST http://127.0.0.1:8787/v1/questions \
-  -H 'content-type: application/json' \
-  -d '{
-    "question": "How do I get started with json-render?"
-  }'
-```
-
-Successful responses include:
-
-- `answer`
-- `model`
-- resolved `repos`
-- `citations`
-- `trace`
-- optional `usage`
-- `warnings`
-
-If repo inference is ambiguous, the server returns a structured `REPO_INFERENCE_AMBIGUOUS` error with ranked candidates and a suggested retry payload.
-
-## MCP
-
-Start the MCP server over stdio:
+Start:
 
 ```bash
 npm run serve:mcp
 ```
 
-The server exposes one high-level tool:
+Tool:
 
 - `ask_codebase_question`
 
-Its input mirrors the HTTP `POST /v1/questions` request body.
+### Limits
 
-Its output is either:
+- Public GitHub repos only
+- Read-only inspection
+- No chat memory
 
-- the full question response envelope
-- or a structured error payload, including repo inference ambiguity details when applicable
-
-## Configuration
-
-Environment variables:
-
-- `IMMANENCE_DATA_DIR`: override the persistent data directory
-- `IMMANENCE_CACHE_DIR`: override the cache directory
-- `IMMANENCE_DEFAULT_MODEL`: override the default model
-- `BRAVE_SEARCH_API_KEY`: enable Brave-backed `web_search`
+### Storage
 
 Defaults:
 
-- data dir: `~/.local/share/immanence`
-- cache dir: `~/.cache/immanence`
-- auth file: `~/.local/share/immanence/auth.json`
-- repo snapshot cache: `~/.local/share/immanence/repos/github.com/...`
+- data: `~/.local/share/immanence`
+- cache: `~/.cache/immanence`
+- auth: `~/.local/share/immanence/auth.json`
+- repo snapshots: `~/.local/share/immanence/repos/github.com/...`
 
-## How It Works
+Environment:
 
-### Repo handling
+- `IMMANENCE_DATA_DIR`
+- `IMMANENCE_CACHE_DIR`
+- `IMMANENCE_DEFAULT_MODEL`
+- `BRAVE_SEARCH_API_KEY`
 
-- Repos are cached as extracted source snapshots keyed by commit SHA
-- Refs are refreshed according to `refresh`
-- Snapshots are downloaded from GitHub tarballs and reused across requests
-- Final responses include commit SHAs so citations are stable
+## Developer Guide
 
-### Agent tools
+### Local Development
 
-The Codex-backed agent uses bespoke internal tools:
+```bash
+npm run dev -- --help
+```
 
-- `clone`: add a new public GitHub repo to the request context
-- `list`: inspect directory structure
-- `read`: read bounded file slices
-- `search`: run `rg` in a repo
-- `web_search`: search the web through Brave when enabled
-
-### Repo inference
-
-If `repos` are omitted, Immanence tries to infer likely repos from question text using:
-
-- direct `owner/name` mentions
-- model-planned repository guesses
-
-If the result is not confident enough, it fails instead of guessing silently.
-
-## Example Smoke Prompts
-
-These are good manual checks for the current MVP:
-
-- `How is OpenClaw able to sync Codex credentials?`
-- `How do I get started with json-render?`
-- `Where does Next take its list of Google fonts from?`
-
-## Development
-
-Run tests:
+### Main Commands
 
 ```bash
 npm test
-```
-
-Build:
-
-```bash
 npm run build
+npm run serve:http
+npm run serve:mcp
 ```
 
-Current automated coverage is focused on:
+### Notes
 
-- request validation
-- repo inference behavior
-- fixture prompt resolution
-
-## Limitations
-
-- The agent currently relies on live network access for GitHub cloning, GitHub repo search, and Codex requests.
-- Web search is disabled unless `BRAVE_SEARCH_API_KEY` is set.
-- The MCP server currently uses stdio only.
-- There is no persisted conversation/session model yet.
+- Repo caching is snapshot-based, keyed by commit SHA.
+- Refs are refreshed according to `--refresh`.
+- Final answers include commit SHAs so citations stay stable.
