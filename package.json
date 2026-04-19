@@ -33,7 +33,7 @@
     "prepack": "npm run build"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "@mariozechner/pi-ai": "^0.67.68",
