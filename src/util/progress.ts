@@ -36,10 +36,7 @@ export function shouldDisplayProgressEvent(event: ProgressEvent) {
     return false;
   }
 
-  if (
-    event.phase === "request" &&
-    event.message === "validated request"
-  ) {
+  if (event.phase === "request" && event.message === "validated request") {
     return false;
   }
 

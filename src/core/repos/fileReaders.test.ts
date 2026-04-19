@@ -25,7 +25,9 @@ function buildHandle(workspacePath: string): RepoHandle {
 }
 
 async function withTempDir<T>(run: (dir: string) => Promise<T>) {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "immanence-file-readers-"));
+  const tempDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "immanence-file-readers-"),
+  );
   try {
     return await run(tempDir);
   } finally {
@@ -37,7 +39,10 @@ describe("fileReaders", () => {
   it("normalizes list and read paths to forward slashes", async () => {
     await withTempDir(async (tempDir) => {
       await fs.mkdir(path.join(tempDir, "src", "lib"), { recursive: true });
-      await fs.writeFile(path.join(tempDir, "src", "lib", "main.ts"), "export const value = 1;\n");
+      await fs.writeFile(
+        path.join(tempDir, "src", "lib", "main.ts"),
+        "export const value = 1;\n",
+      );
 
       const handle = buildHandle(tempDir);
       const listed = await listRepoFiles(handle, "src\\lib");
@@ -113,7 +118,10 @@ describe("fileReaders", () => {
   it("supports case-sensitive matching", async () => {
     await withTempDir(async (tempDir) => {
       await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
-      await fs.writeFile(path.join(tempDir, "src", "main.ts"), "const Needle = true;\n");
+      await fs.writeFile(
+        path.join(tempDir, "src", "main.ts"),
+        "const Needle = true;\n",
+      );
 
       const insensitive = await searchRepoWithNode(
         buildHandle(tempDir),
@@ -137,8 +145,14 @@ describe("fileReaders", () => {
     await withTempDir(async (tempDir) => {
       await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
       await fs.mkdir(path.join(tempDir, "tests"), { recursive: true });
-      await fs.writeFile(path.join(tempDir, "src", "main.ts"), "const target = true;\n");
-      await fs.writeFile(path.join(tempDir, "tests", "main.test.ts"), "const target = true;\n");
+      await fs.writeFile(
+        path.join(tempDir, "src", "main.ts"),
+        "const target = true;\n",
+      );
+      await fs.writeFile(
+        path.join(tempDir, "tests", "main.test.ts"),
+        "const target = true;\n",
+      );
 
       const result = await searchRepoWithNode(
         buildHandle(tempDir),
@@ -162,9 +176,18 @@ describe("fileReaders", () => {
     await withTempDir(async (tempDir) => {
       await fs.mkdir(path.join(tempDir, "src"), { recursive: true });
       await fs.mkdir(path.join(tempDir, ".hidden"), { recursive: true });
-      await fs.writeFile(path.join(tempDir, "src", "visible.ts"), "const visible = true;\n");
-      await fs.writeFile(path.join(tempDir, ".hidden", "ignored.ts"), "const visible = true;\n");
-      await fs.writeFile(path.join(tempDir, ".ignored.ts"), "const visible = true;\n");
+      await fs.writeFile(
+        path.join(tempDir, "src", "visible.ts"),
+        "const visible = true;\n",
+      );
+      await fs.writeFile(
+        path.join(tempDir, ".hidden", "ignored.ts"),
+        "const visible = true;\n",
+      );
+      await fs.writeFile(
+        path.join(tempDir, ".ignored.ts"),
+        "const visible = true;\n",
+      );
       await fs.writeFile(
         path.join(tempDir, "src", "binary.bin"),
         Buffer.from([0x00, 0x01, 0x02, 0x03]),

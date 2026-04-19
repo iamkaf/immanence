@@ -71,7 +71,8 @@ describe("resolveRepos", () => {
       ),
     ).rejects.toMatchObject({
       code: "REPO_INFERENCE_AMBIGUOUS",
-      message: "The model did not produce a repository guess. Pass --repo explicitly.",
+      message:
+        "The model did not produce a repository guess. Pass --repo explicitly.",
     } satisfies Partial<AppError>);
   });
 });

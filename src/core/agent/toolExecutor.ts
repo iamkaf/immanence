@@ -37,19 +37,14 @@ export type AgentSessionState = {
 function findRepoEntry(state: AgentSessionState, repoId: string) {
   const entry = state.repoEntries.get(repoId);
   if (!entry) {
-    throw new AppError(
-      "INVALID_REQUEST",
-      `Unknown repoId: ${repoId}`,
-      400,
-      {
-        availableRepoIds: [...state.repoEntries.keys()],
-        availableRepos: [...state.repoEntries.values()].map((item) => ({
-          repoId: item.handle.repoId,
-          repo: item.handle.repo,
-          alias: item.handle.alias,
-        })),
-      },
-    );
+    throw new AppError("INVALID_REQUEST", `Unknown repoId: ${repoId}`, 400, {
+      availableRepoIds: [...state.repoEntries.keys()],
+      availableRepos: [...state.repoEntries.values()].map((item) => ({
+        repoId: item.handle.repoId,
+        repo: item.handle.repo,
+        alias: item.handle.alias,
+      })),
+    });
   }
   return entry;
 }

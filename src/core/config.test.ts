@@ -13,11 +13,7 @@ describe("resolveStorageDirs", () => {
         homedir: "C:\\Users\\kaf",
       }),
     ).toEqual({
-      dataDir: path.join(
-        "C:\\Users\\kaf\\AppData\\Local",
-        "immanence",
-        "data",
-      ),
+      dataDir: path.join("C:\\Users\\kaf\\AppData\\Local", "immanence", "data"),
       cacheDir: path.join(
         "C:\\Users\\kaf\\AppData\\Local",
         "immanence",
@@ -34,8 +30,20 @@ describe("resolveStorageDirs", () => {
         homedir: "C:\\Users\\kaf",
       }),
     ).toEqual({
-      dataDir: path.join("C:\\Users\\kaf", "AppData", "Local", "immanence", "data"),
-      cacheDir: path.join("C:\\Users\\kaf", "AppData", "Local", "immanence", "cache"),
+      dataDir: path.join(
+        "C:\\Users\\kaf",
+        "AppData",
+        "Local",
+        "immanence",
+        "data",
+      ),
+      cacheDir: path.join(
+        "C:\\Users\\kaf",
+        "AppData",
+        "Local",
+        "immanence",
+        "cache",
+      ),
     });
   });
 

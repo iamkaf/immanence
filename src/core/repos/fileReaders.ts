@@ -3,10 +3,7 @@ import path from "node:path";
 import { minimatch } from "minimatch";
 import type { FileCitation, RepoHandle } from "../types.js";
 import { AppError } from "../errors.js";
-import {
-  normalizeRepoPath,
-  toRepoPath,
-} from "../../util/fs.js";
+import { normalizeRepoPath, toRepoPath } from "../../util/fs.js";
 import {
   execCommand,
   execCommandOrThrow,
@@ -250,11 +247,14 @@ export async function searchRepoWithNode(
   const fixedStringQuery =
     args.regex || args.caseSensitive ? query : query.toLowerCase();
 
-  async function walk(currentPath: string, relativePath: string): Promise<void> {
+  async function walk(
+    currentPath: string,
+    relativePath: string,
+  ): Promise<void> {
     if (matches.length >= maxResults) return;
-    const dirEntries = (await fs.readdir(currentPath, { withFileTypes: true })).sort(
-      (left, right) => left.name.localeCompare(right.name),
-    );
+    const dirEntries = (
+      await fs.readdir(currentPath, { withFileTypes: true })
+    ).sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of dirEntries) {
       if (entry.name === ".git" || entry.name.startsWith(".")) continue;
       const entryPath = path.join(currentPath, entry.name);
@@ -280,7 +280,7 @@ export async function searchRepoWithNode(
         const lines = text.split(/\r?\n/);
         for (const [index, line] of lines.entries()) {
           const column = regex
-            ? regex.exec(line)?.index ?? -1
+            ? (regex.exec(line)?.index ?? -1)
             : args.caseSensitive
               ? line.indexOf(fixedStringQuery)
               : line.toLowerCase().indexOf(fixedStringQuery);

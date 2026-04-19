@@ -15,11 +15,13 @@ export type ImmanenceConfig = {
   braveApiKey: string | null;
 };
 
-export function resolveStorageDirs(args: {
-  platform?: NodeJS.Platform;
-  env?: NodeJS.ProcessEnv;
-  homedir?: string;
-} = {}) {
+export function resolveStorageDirs(
+  args: {
+    platform?: NodeJS.Platform;
+    env?: NodeJS.ProcessEnv;
+    homedir?: string;
+  } = {},
+) {
   const platform = args.platform ?? process.platform;
   const env = args.env ?? process.env;
   const homedir = args.homedir ?? os.homedir();

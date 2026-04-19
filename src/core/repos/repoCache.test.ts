@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import { extractSnapshotArchive } from "./repoCache.js";
 
 async function withTempDir<T>(run: (dir: string) => Promise<T>) {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "immanence-repo-cache-"));
+  const tempDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "immanence-repo-cache-"),
+  );
   try {
     return await run(tempDir);
   } finally {

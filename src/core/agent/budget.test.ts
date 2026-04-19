@@ -137,6 +137,8 @@ describe("buildStopExplorationMessage", () => {
 
     expect(message).toContain("enough repository evidence");
     expect(message).toContain("3 distinct files");
-    expect(message).toContain("Your next response should usually be the final answer");
+    expect(message).toContain(
+      "Your next response should usually be the final answer",
+    );
   });
 });

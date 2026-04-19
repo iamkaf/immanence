@@ -246,7 +246,9 @@ export async function extractSnapshotArchive(args: {
       await fs.rm(partialPath, { recursive: true, force: true });
     });
   } finally {
-    await fs.rm(partialPath, { recursive: true, force: true }).catch(() => undefined);
+    await fs
+      .rm(partialPath, { recursive: true, force: true })
+      .catch(() => undefined);
     await fs.rm(args.archivePath, { force: true }).catch(() => undefined);
   }
 }
@@ -272,7 +274,11 @@ async function prepareSnapshot(
   onProgress?: (event: ProgressEvent) => void,
 ): Promise<PreparedSnapshot> {
   const repoRoot = path.join(config.reposDir, input.owner, input.name);
-  const legacyMirrorPath = path.join(config.reposDir, input.owner, `${input.name}.git`);
+  const legacyMirrorPath = path.join(
+    config.reposDir,
+    input.owner,
+    `${input.name}.git`,
+  );
   const resolutionPath = path.join(
     repoRoot,
     "refs",
@@ -285,10 +291,16 @@ async function prepareSnapshot(
     onProgress?.({
       phase: "repo",
       repo: input.repo,
-      message: cached ? "refreshing cached repo snapshot" : "resolving repo snapshot",
+      message: cached
+        ? "refreshing cached repo snapshot"
+        : "resolving repo snapshot",
     });
     cached = await resolveRemoteSnapshot(input);
-    await fs.writeFile(resolutionPath, `${JSON.stringify(cached, null, 2)}\n`, "utf8");
+    await fs.writeFile(
+      resolutionPath,
+      `${JSON.stringify(cached, null, 2)}\n`,
+      "utf8",
+    );
   } else {
     onProgress?.({
       phase: "repo",
@@ -298,7 +310,11 @@ async function prepareSnapshot(
   }
 
   if (!cached) {
-    throw new AppError("MODEL_ERROR", `Missing cached snapshot metadata for ${input.repo}.`, 500);
+    throw new AppError(
+      "MODEL_ERROR",
+      `Missing cached snapshot metadata for ${input.repo}.`,
+      500,
+    );
   }
 
   const snapshotPath = path.join(repoRoot, "snapshots", cached.commitSha);
