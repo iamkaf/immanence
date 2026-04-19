@@ -19,22 +19,41 @@ async function statOrThrow(fullPath: string) {
   }
 }
 
-export async function listRepoFiles(handle: RepoHandle, repoPath?: string, depth = 2, includeHidden = false) {
+export async function listRepoFiles(
+  handle: RepoHandle,
+  repoPath?: string,
+  depth = 2,
+  includeHidden = false,
+) {
   const normalizedPath = normalizeRepoPath(repoPath);
   const basePath = path.resolve(handle.workspacePath, normalizedPath);
   const stat = await statOrThrow(basePath);
   if (!stat.isDirectory()) {
-    throw new AppError("PATH_NOT_FOUND", `Not a directory: ${normalizedPath}`, 404);
+    throw new AppError(
+      "PATH_NOT_FOUND",
+      `Not a directory: ${normalizedPath}`,
+      404,
+    );
   }
 
-  const entries: Array<{ name: string; path: string; kind: "file" | "dir"; size?: number }> = [];
+  const entries: Array<{
+    name: string;
+    path: string;
+    kind: "file" | "dir";
+    size?: number;
+  }> = [];
 
-  async function walk(currentPath: string, relativePath: string, remainingDepth: number): Promise<void> {
+  async function walk(
+    currentPath: string,
+    relativePath: string,
+    remainingDepth: number,
+  ): Promise<void> {
     const dirEntries = await fs.readdir(currentPath, { withFileTypes: true });
     for (const entry of dirEntries) {
       if (entry.name === ".git") continue;
       if (!includeHidden && entry.name.startsWith(".")) continue;
-      const entryRelPath = relativePath === "." ? entry.name : path.join(relativePath, entry.name);
+      const entryRelPath =
+        relativePath === "." ? entry.name : path.join(relativePath, entry.name);
       const entryPath = path.join(currentPath, entry.name);
       if (entry.isDirectory()) {
         entries.push({ name: entry.name, path: entryRelPath, kind: "dir" });
@@ -43,13 +62,22 @@ export async function listRepoFiles(handle: RepoHandle, repoPath?: string, depth
         }
       } else if (entry.isFile()) {
         const fileStat = await fs.stat(entryPath);
-        entries.push({ name: entry.name, path: entryRelPath, kind: "file", size: fileStat.size });
+        entries.push({
+          name: entry.name,
+          path: entryRelPath,
+          kind: "file",
+          size: fileStat.size,
+        });
       }
       if (entries.length >= 200) return;
     }
   }
 
-  await walk(basePath, normalizedPath === "." ? "." : normalizedPath, Math.max(0, depth));
+  await walk(
+    basePath,
+    normalizedPath === "." ? "." : normalizedPath,
+    Math.max(0, depth),
+  );
 
   return {
     path: normalizedPath,
@@ -63,7 +91,12 @@ function isProbablyBinary(buffer: Buffer) {
   return sample.includes(0);
 }
 
-export async function readRepoFile(handle: RepoHandle, repoPath: string, startLine?: number, endLine?: number) {
+export async function readRepoFile(
+  handle: RepoHandle,
+  repoPath: string,
+  startLine?: number,
+  endLine?: number,
+) {
   const normalizedPath = normalizeRepoPath(repoPath);
   const fullPath = path.resolve(handle.workspacePath, normalizedPath);
   const stat = await statOrThrow(fullPath);
@@ -73,7 +106,11 @@ export async function readRepoFile(handle: RepoHandle, repoPath: string, startLi
 
   const content = await fs.readFile(fullPath);
   if (isProbablyBinary(content)) {
-    throw new AppError("FILE_NOT_TEXT", `File is binary: ${normalizedPath}`, 400);
+    throw new AppError(
+      "FILE_NOT_TEXT",
+      `File is binary: ${normalizedPath}`,
+      400,
+    );
   }
 
   const text = content.toString("utf8");
@@ -118,12 +155,16 @@ export async function readRepoFile(handle: RepoHandle, repoPath: string, startLi
   };
 }
 
-export async function searchRepo(handle: RepoHandle, query: string, args: {
-  pathGlob?: string;
-  regex?: boolean;
-  caseSensitive?: boolean;
-  maxResults?: number;
-} = {}) {
+export async function searchRepo(
+  handle: RepoHandle,
+  query: string,
+  args: {
+    pathGlob?: string;
+    regex?: boolean;
+    caseSensitive?: boolean;
+    maxResults?: number;
+  } = {},
+) {
   const maxResults = Math.min(args.maxResults ?? 20, 100);
   const rgArgs = [
     "--line-number",
@@ -143,7 +184,11 @@ export async function searchRepo(handle: RepoHandle, query: string, args: {
 
   const result = await execCommand("rg", rgArgs, { cwd: handle.workspacePath });
   if (result.exitCode !== 0 && result.exitCode !== 1) {
-    throw new AppError("SEARCH_UNAVAILABLE", result.stderr.trim() || "rg search failed.", 500);
+    throw new AppError(
+      "SEARCH_UNAVAILABLE",
+      result.stderr.trim() || "rg search failed.",
+      500,
+    );
   }
 
   const matches = result.stdout
@@ -170,6 +215,8 @@ export async function searchRepo(handle: RepoHandle, query: string, args: {
 }
 
 export async function repoTopLevelFiles(handle: RepoHandle) {
-  const result = await execCommandOrThrow("git", ["ls-files"], { cwd: handle.workspacePath });
+  const result = await execCommandOrThrow("git", ["ls-files"], {
+    cwd: handle.workspacePath,
+  });
   return result.stdout.trim().split("\n").filter(Boolean).slice(0, 1000);
 }

@@ -19,10 +19,16 @@ export function joinPath(...parts: string[]) {
 }
 
 export function sanitizePathSegment(input: string) {
-  return input.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "item";
+  return (
+    input.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "item"
+  );
 }
 
-export async function writeTextFile(targetPath: string, content: string, mode?: number) {
+export async function writeTextFile(
+  targetPath: string,
+  content: string,
+  mode?: number,
+) {
   await ensureDir(path.dirname(targetPath));
   await fs.writeFile(targetPath, content, { encoding: "utf8", mode });
 }

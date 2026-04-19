@@ -1,10 +1,15 @@
 import type { RepoHandle } from "../types.js";
 
-export function buildSystemPrompt(args: { repos: RepoHandle[]; includeWebSearch: boolean }) {
+export function buildSystemPrompt(args: {
+  repos: RepoHandle[];
+  includeWebSearch: boolean;
+}) {
   const repoSummary = args.repos
     .map(
       (repo) =>
-        `- repoId=${repo.repoId}, repo=${repo.repo}, alias=${repo.alias}, commit=${repo.commitSha}, defaultBranch=${repo.defaultBranch}${repo.inferred ? ", inferred=true" : ""}`,
+        `- repoId=${repo.repoId}, repo=${repo.repo}, alias=${repo.alias}, commit=${repo.commitSha}, defaultBranch=${repo.defaultBranch}${
+          repo.inferred ? ", inferred=true" : ""
+        }`,
     )
     .join("\n");
 

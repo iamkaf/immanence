@@ -10,20 +10,41 @@ export async function createDetachedWorktree(args: {
   alias: string;
   commitSha: string;
 }) {
-  const targetPath = path.join(args.runsDir, args.requestId, sanitizePathSegment(args.alias));
+  const targetPath = path.join(
+    args.runsDir,
+    args.requestId,
+    sanitizePathSegment(args.alias),
+  );
   await ensureDir(path.dirname(targetPath));
   await fs.rm(targetPath, { recursive: true, force: true });
   await execCommandOrThrow(
     "git",
-    ["--git-dir", args.mirrorPath, "worktree", "add", "--detach", targetPath, args.commitSha],
+    [
+      "--git-dir",
+      args.mirrorPath,
+      "worktree",
+      "add",
+      "--detach",
+      targetPath,
+      args.commitSha,
+    ],
     { errorPrefix: `git worktree add ${args.alias}` },
   );
   return targetPath;
 }
 
-export async function removeDetachedWorktree(mirrorPath: string, workspacePath: string) {
-  await execCommandOrThrow("git", ["--git-dir", mirrorPath, "worktree", "remove", "--force", workspacePath], {
-    errorPrefix: `git worktree remove ${workspacePath}`,
-  }).catch(() => undefined);
-  await fs.rm(workspacePath, { recursive: true, force: true }).catch(() => undefined);
+export async function removeDetachedWorktree(
+  mirrorPath: string,
+  workspacePath: string,
+) {
+  await execCommandOrThrow(
+    "git",
+    ["--git-dir", mirrorPath, "worktree", "remove", "--force", workspacePath],
+    {
+      errorPrefix: `git worktree remove ${workspacePath}`,
+    },
+  ).catch(() => undefined);
+  await fs
+    .rm(workspacePath, { recursive: true, force: true })
+    .catch(() => undefined);
 }

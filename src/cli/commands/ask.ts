@@ -1,5 +1,6 @@
 import { answerQuestion } from "../../core/service.js";
 import { AppError } from "../../core/errors.js";
+import { formatProgressEvent } from "../../util/progress.js";
 
 export async function askCommand(options: {
   question: string;
@@ -22,8 +23,9 @@ export async function askCommand(options: {
         maxToolCalls: options.maxToolCalls,
       },
       {
-        onProgress: (message) => {
-          if (!options.json) process.stderr.write(`[immanence] ${message}\n`);
+        onProgress: (event) => {
+          if (!options.json)
+            process.stderr.write(`${formatProgressEvent(event)}\n`);
         },
       },
     );
@@ -40,7 +42,9 @@ export async function askCommand(options: {
               error: {
                 code: error.code,
                 message: error.message,
-                ...(typeof error.details === "object" && error.details ? error.details : {}),
+                ...(typeof error.details === "object" && error.details
+                  ? error.details
+                  : {}),
               },
             }
           : {

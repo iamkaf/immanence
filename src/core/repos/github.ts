@@ -12,7 +12,9 @@ export function parseGitHubRepo(input: string): GitHubRepo {
     throw new AppError("INVALID_REQUEST", "Repository cannot be empty.");
   }
 
-  const urlMatch = trimmed.match(/^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?(?:\/)?$/i);
+  const urlMatch = trimmed.match(
+    /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?(?:\/)?$/i,
+  );
   if (urlMatch) {
     const owner = urlMatch[1] ?? "";
     const name = (urlMatch[2] ?? "").replace(/\.git$/i, "");
@@ -26,7 +28,10 @@ export function parseGitHubRepo(input: string): GitHubRepo {
     return { owner, name, repo: `${owner}/${name}` };
   }
 
-  throw new AppError("INVALID_REQUEST", `Unsupported repository reference: ${input}`);
+  throw new AppError(
+    "INVALID_REQUEST",
+    `Unsupported repository reference: ${input}`,
+  );
 }
 
 export function buildGitHubCloneUrl(repo: GitHubRepo) {

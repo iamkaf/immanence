@@ -14,7 +14,9 @@ export async function registerQuestionRoutes(app: FastifyInstance) {
                 error: {
                   code: error.code,
                   message: error.message,
-                  ...(typeof error.details === "object" && error.details ? error.details : {}),
+                  ...(typeof error.details === "object" && error.details
+                    ? error.details
+                    : {}),
                 },
               }
             : {

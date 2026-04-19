@@ -62,5 +62,7 @@ export async function execCommandOrThrow(
   const result = await execCommand(command, args, options);
   if (result.exitCode === 0) return result;
   const prefix = options.errorPrefix ?? `${command} ${args.join(" ")}`;
-  throw new Error(`${prefix} failed with exit code ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim()}`);
+  throw new Error(
+    `${prefix} failed with exit code ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim()}`,
+  );
 }

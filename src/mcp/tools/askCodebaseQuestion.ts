@@ -31,7 +31,8 @@ export function registerAskCodebaseQuestionTool(server: McpServer) {
   server.registerTool(
     "ask_codebase_question",
     {
-      description: "Answer a question about one or more public GitHub repositories.",
+      description:
+        "Answer a question about one or more public GitHub repositories.",
       inputSchema,
     },
     async (input) => {
@@ -49,7 +50,9 @@ export function registerAskCodebaseQuestionTool(server: McpServer) {
                   error: {
                     code: error.code,
                     message: error.message,
-                    ...(typeof error.details === "object" && error.details ? error.details : {}),
+                    ...(typeof error.details === "object" && error.details
+                      ? error.details
+                      : {}),
                   },
                 }
               : {

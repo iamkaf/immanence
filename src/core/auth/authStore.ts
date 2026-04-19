@@ -20,7 +20,10 @@ export async function readAuthStore(authFilePath: string): Promise<AuthStore> {
 
 export async function writeAuthStore(authFilePath: string, store: AuthStore) {
   await ensureDir(path.dirname(authFilePath));
-  await fs.writeFile(authFilePath, stableStringify(store), { encoding: "utf8", mode: 0o600 });
+  await fs.writeFile(authFilePath, stableStringify(store), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 export async function getStoredCredentials(authFilePath: string) {
@@ -28,7 +31,10 @@ export async function getStoredCredentials(authFilePath: string) {
   return store.providers[PROVIDER_ID] ?? null;
 }
 
-export async function setStoredCredentials(authFilePath: string, credentials: OAuthCredentials) {
+export async function setStoredCredentials(
+  authFilePath: string,
+  credentials: OAuthCredentials,
+) {
   const store = await readAuthStore(authFilePath);
   await writeAuthStore(authFilePath, {
     providers: {

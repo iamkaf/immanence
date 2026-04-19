@@ -10,9 +10,13 @@ import { serveMcpCommand } from "./commands/serveMcp.js";
 
 const program = new Command();
 
-program.name("immanence").description("AI-powered codebase exploration utility.");
+program
+  .name("immanence")
+  .description("AI-powered codebase exploration utility.");
 
-const auth = program.command("auth").description("Manage Codex authentication.");
+const auth = program
+  .command("auth")
+  .description("Manage Codex authentication.");
 auth.command("login").action(async () => await authLoginCommand());
 auth.command("status").action(async () => await authStatusCommand());
 auth.command("logout").action(async () => await authLogoutCommand());
@@ -30,7 +34,9 @@ program
   .option("--model <model>", "Model ID")
   .option("--include-web-search", "Enable web search")
   .option("--refresh <mode>", "Refresh mode")
-  .option("--max-tool-calls <count>", "Max tool calls", (value) => Number(value))
+  .option("--max-tool-calls <count>", "Max tool calls", (value) =>
+    Number(value),
+  )
   .option("--json", "Emit JSON only")
   .action(async (options) => {
     await askCommand({
@@ -45,7 +51,9 @@ program
     });
   });
 
-const serve = program.command("serve").description("Start an interface server.");
+const serve = program
+  .command("serve")
+  .description("Start an interface server.");
 serve
   .command("http")
   .option("--port <port>", "Port to listen on", (value) => Number(value), 8787)

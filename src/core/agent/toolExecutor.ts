@@ -1,8 +1,19 @@
 import type { ImmanenceConfig } from "../config.js";
 import { AppError } from "../errors.js";
-import type { Citation, RefreshMode, RepoHandle, ResolvedRepoInput, TraceEntry } from "../types.js";
+import type {
+  Citation,
+  ProgressEvent,
+  RefreshMode,
+  RepoHandle,
+  ResolvedRepoInput,
+  TraceEntry,
+} from "../types.js";
 import { searchWeb } from "../search/webSearch.js";
-import { readRepoFile, listRepoFiles, searchRepo } from "../repos/fileReaders.js";
+import {
+  readRepoFile,
+  listRepoFiles,
+  searchRepo,
+} from "../repos/fileReaders.js";
 import { prepareRepoHandle } from "../repos/repoCache.js";
 import { parseGitHubRepo } from "../repos/github.js";
 import { citationsFromWebResults } from "./citations.js";
@@ -20,7 +31,7 @@ export type AgentSessionState = {
   citations: Citation[];
   trace: TraceEntry[];
   warnings: string[];
-  onProgress?: (message: string) => void;
+  onProgress?: (event: ProgressEvent) => void;
 };
 
 function findRepoEntry(state: AgentSessionState, repoId: string) {
@@ -31,10 +42,94 @@ function findRepoEntry(state: AgentSessionState, repoId: string) {
   return entry;
 }
 
-async function cloneRepo(state: AgentSessionState, repo: string, ref?: string, refresh?: string) {
+function quoted(value: string) {
+  return `"${value}"`;
+}
+
+function toolStartEvent(
+  toolName: string,
+  rawArgs: Record<string, unknown>,
+  state: AgentSessionState,
+): ProgressEvent {
+  switch (toolName) {
+    case "clone":
+      return {
+        phase: "tool",
+        tool: toolName,
+        repo: typeof rawArgs.repo === "string" ? rawArgs.repo : undefined,
+        message: "starting",
+      };
+    case "list": {
+      const repoId = String(rawArgs.repoId ?? "");
+      const entry = state.repoEntries.get(repoId);
+      return {
+        phase: "tool",
+        tool: toolName,
+        repo: entry?.handle.repo,
+        path: typeof rawArgs.path === "string" ? rawArgs.path : ".",
+        message: "listing files",
+        detail: `depth=${
+          typeof rawArgs.depth === "number" ? rawArgs.depth : 2
+        }`,
+      };
+    }
+    case "read": {
+      const repoId = String(rawArgs.repoId ?? "");
+      const entry = state.repoEntries.get(repoId);
+      const startLine =
+        typeof rawArgs.startLine === "number" ? rawArgs.startLine : 1;
+      const endLine =
+        typeof rawArgs.endLine === "number" ? rawArgs.endLine : startLine + 399;
+      return {
+        phase: "tool",
+        tool: toolName,
+        repo: entry?.handle.repo,
+        path: typeof rawArgs.path === "string" ? rawArgs.path : undefined,
+        message: "reading file",
+        detail: `lines ${startLine}-${endLine}`,
+      };
+    }
+    case "search": {
+      const repoId = String(rawArgs.repoId ?? "");
+      const entry = state.repoEntries.get(repoId);
+      return {
+        phase: "tool",
+        tool: toolName,
+        repo: entry?.handle.repo,
+        path:
+          typeof rawArgs.pathGlob === "string" ? rawArgs.pathGlob : undefined,
+        message: "searching repository",
+        detail: quoted(String(rawArgs.query ?? "")),
+      };
+    }
+    case "web_search":
+      return {
+        phase: "tool",
+        tool: toolName,
+        message: "searching web",
+        detail: quoted(String(rawArgs.query ?? "")),
+      };
+    default:
+      return {
+        phase: "tool",
+        tool: toolName,
+        message: "starting",
+      };
+  }
+}
+
+async function cloneRepo(
+  state: AgentSessionState,
+  repo: string,
+  ref?: string,
+  refresh?: string,
+) {
   const parsed = parseGitHubRepo(repo);
   for (const entry of state.repoEntries.values()) {
-    if (entry.handle.repo === parsed.repo && (!ref || entry.handle.refRequested === ref)) {
+    if (
+      entry.handle.repo === parsed.repo &&
+      (!ref || entry.handle.refRequested === ref)
+    ) {
       state.trace.push({
         tool: "clone",
         summary: `Reused ${entry.handle.repo} as ${entry.handle.repoId}.`,
@@ -52,7 +147,10 @@ async function cloneRepo(state: AgentSessionState, repo: string, ref?: string, r
   }
 
   if (state.repoEntries.size >= state.config.maxReposPerRequest) {
-    throw new AppError("INVALID_REQUEST", `Request already uses the maximum of ${state.config.maxReposPerRequest} repositories.`);
+    throw new AppError(
+      "INVALID_REQUEST",
+      `Request already uses the maximum of ${state.config.maxReposPerRequest} repositories.`,
+    );
   }
 
   const input: ResolvedRepoInput = {
@@ -92,7 +190,7 @@ export async function executeToolCall(
   rawArgs: Record<string, unknown>,
   state: AgentSessionState,
 ) {
-  state.onProgress?.(`tool ${toolName}: started`);
+  state.onProgress?.(toolStartEvent(toolName, rawArgs, state));
   switch (toolName) {
     case "clone": {
       const result = await cloneRepo(
@@ -101,7 +199,13 @@ export async function executeToolCall(
         typeof rawArgs.ref === "string" ? rawArgs.ref : undefined,
         typeof rawArgs.refresh === "string" ? rawArgs.refresh : undefined,
       );
-      state.onProgress?.(`tool ${toolName}: completed`);
+      state.onProgress?.({
+        phase: "tool",
+        tool: toolName,
+        repo: result.repo,
+        message: "completed",
+        detail: result.status,
+      });
       return result;
     }
     case "list": {
@@ -110,13 +214,22 @@ export async function executeToolCall(
         entry.handle,
         typeof rawArgs.path === "string" ? rawArgs.path : undefined,
         typeof rawArgs.depth === "number" ? rawArgs.depth : undefined,
-        typeof rawArgs.includeHidden === "boolean" ? rawArgs.includeHidden : undefined,
+        typeof rawArgs.includeHidden === "boolean"
+          ? rawArgs.includeHidden
+          : undefined,
       );
       state.trace.push({
         tool: "list",
         summary: `Listed ${result.path} in ${entry.handle.repo}.`,
       });
-      state.onProgress?.(`tool ${toolName}: completed`);
+      state.onProgress?.({
+        phase: "tool",
+        tool: toolName,
+        repo: entry.handle.repo,
+        path: result.path,
+        message: "completed",
+        detail: `${result.entries.length} entries`,
+      });
       return result;
     }
     case "read": {
@@ -132,16 +245,32 @@ export async function executeToolCall(
         tool: "read",
         summary: `Read ${result.path}:${result.startLine}-${result.endLine} in ${entry.handle.repo}.`,
       });
-      state.onProgress?.(`tool ${toolName}: completed`);
+      state.onProgress?.({
+        phase: "tool",
+        tool: toolName,
+        repo: entry.handle.repo,
+        path: result.path,
+        message: "completed",
+        detail: `lines ${result.startLine}-${result.endLine}`,
+      });
       return result;
     }
     case "search": {
       const entry = findRepoEntry(state, String(rawArgs.repoId ?? ""));
-      const result = await searchRepo(entry.handle, String(rawArgs.query ?? ""), {
-        pathGlob: typeof rawArgs.pathGlob === "string" ? rawArgs.pathGlob : undefined,
+      const pathGlob =
+        typeof rawArgs.pathGlob === "string" ? rawArgs.pathGlob : undefined;
+      const query = String(rawArgs.query ?? "");
+      const result = await searchRepo(entry.handle, query, {
+        pathGlob,
         regex: typeof rawArgs.regex === "boolean" ? rawArgs.regex : undefined,
-        caseSensitive: typeof rawArgs.caseSensitive === "boolean" ? rawArgs.caseSensitive : undefined,
-        maxResults: typeof rawArgs.maxResults === "number" ? rawArgs.maxResults : undefined,
+        caseSensitive:
+          typeof rawArgs.caseSensitive === "boolean"
+            ? rawArgs.caseSensitive
+            : undefined,
+        maxResults:
+          typeof rawArgs.maxResults === "number"
+            ? rawArgs.maxResults
+            : undefined,
       });
       for (const match of result.matches.slice(0, 5)) {
         state.citations.push({
@@ -157,17 +286,33 @@ export async function executeToolCall(
         tool: "search",
         summary: `Searched ${entry.handle.repo} for "${result.query}".`,
       });
-      state.onProgress?.(`tool ${toolName}: completed (${result.matches.length} matches)`);
+      state.onProgress?.({
+        phase: "tool",
+        tool: toolName,
+        repo: entry.handle.repo,
+        path: pathGlob,
+        message: "completed",
+        detail: `${result.matches.length} matches for ${quoted(result.query)}`,
+      });
       return result;
     }
     case "web_search": {
-      const results = await searchWeb(state.config, String(rawArgs.query ?? ""), typeof rawArgs.maxResults === "number" ? rawArgs.maxResults : undefined);
+      const results = await searchWeb(
+        state.config,
+        String(rawArgs.query ?? ""),
+        typeof rawArgs.maxResults === "number" ? rawArgs.maxResults : undefined,
+      );
       state.citations.push(...citationsFromWebResults(results));
       state.trace.push({
         tool: "web_search",
         summary: `Searched the web for "${String(rawArgs.query ?? "")}".`,
       });
-      state.onProgress?.(`tool ${toolName}: completed (${results.length} results)`);
+      state.onProgress?.({
+        phase: "tool",
+        tool: toolName,
+        message: "completed",
+        detail: `${results.length} results for ${quoted(String(rawArgs.query ?? ""))}`,
+      });
       return { results };
     }
     default:

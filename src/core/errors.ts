@@ -17,7 +17,12 @@ export class AppError extends Error {
   readonly statusCode: number;
   readonly details?: unknown;
 
-  constructor(code: ErrorCode, message: string, statusCode = 400, details?: unknown) {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    statusCode = 400,
+    details?: unknown,
+  ) {
     super(message);
     this.code = code;
     this.statusCode = statusCode;
@@ -27,8 +32,18 @@ export class AppError extends Error {
 
 export function toAppError(error: unknown) {
   if (error instanceof AppError) return error;
-  if (typeof error === "object" && error && "name" in error && error.name === "ZodError") {
-    return new AppError("INVALID_REQUEST", "Request validation failed.", 400, error);
+  if (
+    typeof error === "object" &&
+    error &&
+    "name" in error &&
+    error.name === "ZodError"
+  ) {
+    return new AppError(
+      "INVALID_REQUEST",
+      "Request validation failed.",
+      400,
+      error,
+    );
   }
   if (error instanceof Error) {
     return new AppError("MODEL_ERROR", error.message, 500);

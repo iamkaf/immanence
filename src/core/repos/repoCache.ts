@@ -3,7 +3,12 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ImmanenceConfig } from "../config.js";
 import { AppError } from "../errors.js";
-import type { RefreshMode, RepoHandle, ResolvedRepoInput } from "../types.js";
+import type {
+  ProgressEvent,
+  RefreshMode,
+  RepoHandle,
+  ResolvedRepoInput,
+} from "../types.js";
 import { ensureDir, pathExists, sanitizePathSegment } from "../../util/fs.js";
 import { execCommand, execCommandOrThrow } from "../../util/process.js";
 import { buildGitHubCloneUrl } from "./github.js";
@@ -16,9 +21,13 @@ type PreparedMirror = {
 };
 
 async function readHeadRef(mirrorPath: string) {
-  const result = await execCommandOrThrow("git", ["--git-dir", mirrorPath, "symbolic-ref", "HEAD"], {
-    errorPrefix: `git symbolic-ref HEAD`,
-  });
+  const result = await execCommandOrThrow(
+    "git",
+    ["--git-dir", mirrorPath, "symbolic-ref", "HEAD"],
+    {
+      errorPrefix: `git symbolic-ref HEAD`,
+    },
+  );
   return result.stdout.trim().replace(/^refs\/heads\//, "");
 }
 
@@ -32,7 +41,11 @@ async function readFetchTimestamp(mirrorPath: string) {
   }
 }
 
-async function shouldRefreshMirror(mirrorPath: string, refresh: RefreshMode, staleRepoMs: number) {
+async function shouldRefreshMirror(
+  mirrorPath: string,
+  refresh: RefreshMode,
+  staleRepoMs: number,
+) {
   if (refresh === "always") return true;
   if (refresh === "never") return false;
   const fetchedAt = await readFetchTimestamp(mirrorPath);
@@ -43,26 +56,63 @@ async function prepareMirror(
   input: ResolvedRepoInput,
   config: ImmanenceConfig,
   refresh: RefreshMode,
-  onProgress?: (message: string) => void,
+  onProgress?: (event: ProgressEvent) => void,
 ): Promise<PreparedMirror> {
-  const mirrorPath = path.join(config.reposDir, input.owner, `${input.name}.git`);
+  const mirrorPath = path.join(
+    config.reposDir,
+    input.owner,
+    `${input.name}.git`,
+  );
   const cloneUrl = buildGitHubCloneUrl(input);
   await ensureDir(path.dirname(mirrorPath));
 
   if (!(await pathExists(mirrorPath))) {
-    onProgress?.(`repo ${input.repo}: cloning mirror from GitHub`);
-    const result = await execCommand("git", ["clone", "--mirror", cloneUrl, mirrorPath]);
+    onProgress?.({
+      phase: "repo",
+      repo: input.repo,
+      message: "cloning mirror from GitHub",
+    });
+    const result = await execCommand("git", [
+      "clone",
+      "--mirror",
+      cloneUrl,
+      mirrorPath,
+    ]);
     if (result.exitCode !== 0) {
-      throw new AppError("CLONE_FAILED", `Failed to clone ${input.repo}: ${result.stderr.trim() || result.stdout.trim()}`, 502);
+      throw new AppError(
+        "CLONE_FAILED",
+        `Failed to clone ${input.repo}: ${result.stderr.trim() || result.stdout.trim()}`,
+        502,
+      );
     }
-  } else if (await shouldRefreshMirror(mirrorPath, refresh, config.staleRepoMs)) {
-    onProgress?.(`repo ${input.repo}: refreshing cached mirror`);
-    const result = await execCommand("git", ["--git-dir", mirrorPath, "remote", "update", "--prune"]);
+  } else if (
+    await shouldRefreshMirror(mirrorPath, refresh, config.staleRepoMs)
+  ) {
+    onProgress?.({
+      phase: "repo",
+      repo: input.repo,
+      message: "refreshing cached mirror",
+    });
+    const result = await execCommand("git", [
+      "--git-dir",
+      mirrorPath,
+      "remote",
+      "update",
+      "--prune",
+    ]);
     if (result.exitCode !== 0) {
-      throw new AppError("CLONE_FAILED", `Failed to refresh ${input.repo}: ${result.stderr.trim() || result.stdout.trim()}`, 502);
+      throw new AppError(
+        "CLONE_FAILED",
+        `Failed to refresh ${input.repo}: ${result.stderr.trim() || result.stdout.trim()}`,
+        502,
+      );
     }
   } else {
-    onProgress?.(`repo ${input.repo}: reusing cached mirror`);
+    onProgress?.({
+      phase: "repo",
+      repo: input.repo,
+      message: "reusing cached mirror",
+    });
   }
 
   let defaultBranch = "main";
@@ -73,9 +123,18 @@ async function prepareMirror(
   }
 
   const ref = input.ref?.trim() || defaultBranch;
-  const resolved = await execCommand("git", ["--git-dir", mirrorPath, "rev-parse", ref]);
+  const resolved = await execCommand("git", [
+    "--git-dir",
+    mirrorPath,
+    "rev-parse",
+    ref,
+  ]);
   if (resolved.exitCode !== 0) {
-    throw new AppError("REF_NOT_FOUND", `Unable to resolve ref "${ref}" for ${input.repo}.`, 404);
+    throw new AppError(
+      "REF_NOT_FOUND",
+      `Unable to resolve ref "${ref}" for ${input.repo}.`,
+      404,
+    );
   }
 
   return {
@@ -90,12 +149,26 @@ export async function prepareRepoHandle(args: {
   config: ImmanenceConfig;
   refresh: RefreshMode;
   requestId?: string;
-  onProgress?: (message: string) => void;
+  onProgress?: (event: ProgressEvent) => void;
 }) {
   const requestId = args.requestId || randomUUID();
-  args.onProgress?.(`repo ${args.input.repo}: preparing mirror`);
-  const preparedMirror = await prepareMirror(args.input, args.config, args.refresh, args.onProgress);
-  args.onProgress?.(`repo ${args.input.repo}: creating detached worktree at ${preparedMirror.commitSha.slice(0, 12)}`);
+  args.onProgress?.({
+    phase: "repo",
+    repo: args.input.repo,
+    message: "preparing mirror",
+  });
+  const preparedMirror = await prepareMirror(
+    args.input,
+    args.config,
+    args.refresh,
+    args.onProgress,
+  );
+  args.onProgress?.({
+    phase: "repo",
+    repo: args.input.repo,
+    message: "creating detached worktree",
+    detail: preparedMirror.commitSha.slice(0, 12),
+  });
   const workspacePath = await createDetachedWorktree({
     mirrorPath: preparedMirror.mirrorPath,
     runsDir: args.config.runsDir,
@@ -105,7 +178,9 @@ export async function prepareRepoHandle(args: {
   });
 
   const handle: RepoHandle = {
-    repoId: sanitizePathSegment(`${args.input.owner}-${args.input.name}-${preparedMirror.commitSha.slice(0, 8)}`),
+    repoId: sanitizePathSegment(
+      `${args.input.owner}-${args.input.name}-${preparedMirror.commitSha.slice(0, 8)}`,
+    ),
     repo: args.input.repo,
     owner: args.input.owner,
     name: args.input.name,
@@ -123,6 +198,13 @@ export async function prepareRepoHandle(args: {
   };
 }
 
-export async function cleanupRepoHandles(entries: Array<{ mirrorPath: string; workspacePath: string }>) {
-  await Promise.all(entries.map(async (entry) => await removeDetachedWorktree(entry.mirrorPath, entry.workspacePath)));
+export async function cleanupRepoHandles(
+  entries: Array<{ mirrorPath: string; workspacePath: string }>,
+) {
+  await Promise.all(
+    entries.map(
+      async (entry) =>
+        await removeDetachedWorktree(entry.mirrorPath, entry.workspacePath),
+    ),
+  );
 }

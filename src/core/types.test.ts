@@ -13,7 +13,9 @@ describe("questionRequestSchema", () => {
     expect(() =>
       questionRequestSchema.parse({
         question: "q",
-        repos: Array.from({ length: 6 }, (_, index) => ({ repo: `owner/repo-${index}` })),
+        repos: Array.from({ length: 6 }, (_, index) => ({
+          repo: `owner/repo-${index}`,
+        })),
       }),
     ).toThrow();
   });

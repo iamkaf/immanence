@@ -11,7 +11,11 @@ type BraveSearchResponse = {
   };
 };
 
-export async function braveWebSearch(apiKey: string, query: string, maxResults = 5): Promise<WebSearchResult[]> {
+export async function braveWebSearch(
+  apiKey: string,
+  query: string,
+  maxResults = 5,
+): Promise<WebSearchResult[]> {
   const url = new URL("https://api.search.brave.com/res/v1/web/search");
   url.searchParams.set("q", query);
   url.searchParams.set("count", String(Math.min(Math.max(maxResults, 1), 10)));
@@ -24,7 +28,11 @@ export async function braveWebSearch(apiKey: string, query: string, maxResults =
   });
 
   if (!response.ok) {
-    throw new AppError("SEARCH_UNAVAILABLE", `Brave search failed with status ${response.status}.`, 502);
+    throw new AppError(
+      "SEARCH_UNAVAILABLE",
+      `Brave search failed with status ${response.status}.`,
+      502,
+    );
   }
 
   const payload = (await response.json()) as BraveSearchResponse;

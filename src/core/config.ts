@@ -16,8 +16,12 @@ export type ImmanenceConfig = {
 };
 
 export function loadConfig(): ImmanenceConfig {
-  const dataDir = process.env.IMMANENCE_DATA_DIR || path.join(os.homedir(), ".local", "share", "immanence");
-  const cacheDir = process.env.IMMANENCE_CACHE_DIR || path.join(os.homedir(), ".cache", "immanence");
+  const dataDir =
+    process.env.IMMANENCE_DATA_DIR ||
+    path.join(os.homedir(), ".local", "share", "immanence");
+  const cacheDir =
+    process.env.IMMANENCE_CACHE_DIR ||
+    path.join(os.homedir(), ".cache", "immanence");
   return {
     dataDir,
     cacheDir,

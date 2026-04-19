@@ -122,3 +122,13 @@ export type WebSearchResult = {
   snippet: string;
   source: "brave";
 };
+
+export type ProgressEvent = {
+  phase: "request" | "resolve" | "repo" | "auth" | "agent" | "tool" | "cleanup";
+  level?: "info" | "warn" | "error";
+  message: string;
+  repo?: string;
+  tool?: string;
+  path?: string;
+  detail?: string;
+};

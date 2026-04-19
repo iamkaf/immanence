@@ -8,11 +8,15 @@ export async function modelsCommand(options: { json?: boolean } = {}) {
   }
 
   for (const model of models) {
-    const context = model.contextLength ? `${model.contextLength.toLocaleString()} ctx` : "unknown ctx";
+    const context = model.contextLength
+      ? `${model.contextLength.toLocaleString()} ctx`
+      : "unknown ctx";
     const reasoning = model.reasoning ? "reasoning" : "fast";
     const modalities = model.inputModalities.join(", ");
     process.stdout.write(`${model.id}\n`);
     process.stdout.write(`  ${model.name}\n`);
-    process.stdout.write(`  ${reasoning} | ${context} | input: ${modalities}\n`);
+    process.stdout.write(
+      `  ${reasoning} | ${context} | input: ${modalities}\n`,
+    );
   }
 }
