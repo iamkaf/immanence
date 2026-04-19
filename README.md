@@ -1,181 +1,188 @@
-# Immanence
+<p align="center">
+  <img src="assets/banner.png" alt="Immanence — answers that live inside the code" width="720" />
+</p>
 
-Local codebase Q&A for public GitHub repositories.
+<h1 align="center">Immanence</h1>
 
-Immanence resolves a repo, pins a commit, downloads a cached source snapshot, lets a Codex-backed agent inspect the code, and returns an answer with citations.
+<p align="center">
+  <strong>Ask any public GitHub codebase a question. Get an answer with citations.</strong>
+</p>
 
-The name means something being present within rather than outside. Here, the answers come from the codebase itself.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#cli-reference">CLI</a> ·
+  <a href="#http-api">HTTP API</a> ·
+  <a href="#mcp-server">MCP</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
 
-## User Guide
+---
+
+Immanence resolves a repo, pins a commit, downloads a cached source snapshot, and lets an AI agent inspect the code to answer your question — complete with file-level citations tied to a specific commit so they never go stale.
+
+> **im·ma·nence** */ˈimənəns/*
+> The quality of being contained within; inherent. Here, the answers come from the codebase itself — not from approximations or training data.
+
+## How It Works
+
+```
+ You ask a question
+       ↓
+ Repo is resolved (or inferred from the question)
+       ↓
+ HEAD is pinned to a specific commit SHA
+       ↓
+ Source snapshot is downloaded & cached locally
+       ↓
+ An AI agent inspects the code with tool calls
+       ↓
+ You get an answer with file + line citations
+```
+
+Three interfaces, same engine:
+
+| Interface | Use case |
+|-----------|----------|
+| **CLI** | One-off questions from your terminal |
+| **HTTP** | Integrate into scripts, bots, dashboards |
+| **MCP** | Plug into any MCP-compatible AI assistant |
+
+## Quick Start
 
 ### Requirements
 
 - Node.js 20+
-- `git`
+- `git` on your PATH
 
-Optional:
-
-- `BRAVE_SEARCH_API_KEY` for `--include-web-search`
-
-### Install
+### Install & Build
 
 ```bash
 npm install
 npm run build
 ```
 
-### Windows
-
-Native Windows is supported.
-
-- external dependency: `git`
-- default data dir: `%LOCALAPPDATA%\\immanence\\data`
-- default cache dir: `%LOCALAPPDATA%\\immanence\\cache`
-- `IMMANENCE_DATA_DIR` and `IMMANENCE_CACHE_DIR` override the defaults
-
-### Sign in
+### Authenticate
 
 ```bash
 npx immanence auth login
-npx immanence auth status
+npx immanence auth status   # verify
 ```
 
-### Ask a question
-
-Explicit repo:
+### Ask Something
 
 ```bash
+# Specify a repo explicitly
 npx immanence ask \
   --repo honojs/hono \
   --question "How does the router match params and wildcards?"
-```
 
-Repo inference:
-
-```bash
+# Let Immanence figure out which repo you mean
 npx immanence ask \
-  --question "Where does Next take its list of Google fonts from?"
-```
+  --question "Where does Next.js get its list of Google fonts?"
 
-JSON output:
-
-```bash
+# Machine-readable output
 npx immanence ask \
-  --question "Where does Next take its list of Google fonts from?" \
+  --question "Where does Next.js get its list of Google fonts?" \
   --json
 ```
 
-### CLI
+## CLI Reference
 
-Commands:
+### Commands
 
-- `auth login`
-- `auth status`
-- `auth logout`
-- `models`
-- `ask`
-- `serve http`
-- `serve mcp`
+| Command | Description |
+|---------|-------------|
+| `auth login` | Authenticate with GitHub |
+| `auth status` | Check authentication state |
+| `auth logout` | Clear stored credentials |
+| `models` | List available models |
+| `ask` | Ask a question about a codebase |
+| `serve http` | Start the HTTP server |
+| `serve mcp` | Start the MCP server |
 
-`ask` options:
+### `ask` Options
 
-- `--repo <repo...>` explicit GitHub repos
-- `--ref <ref>` branch, tag, or commit for explicit repos
-- `--model <model>` model override
-- `--include-web-search` enable Brave-backed web search
-- `--refresh <mode>` `never`, `if-stale`, or `always`
-- `--max-tool-calls <count>` tool-call cap
-- `--json` emit the full response envelope
+| Flag | Description |
+|------|-------------|
+| `--repo <repo...>` | One or more GitHub repos (`owner/name`) |
+| `--ref <ref>` | Branch, tag, or commit SHA |
+| `--model <model>` | Override the default model |
+| `--include-web-search` | Augment with Brave web search |
+| `--refresh <mode>` | `never` · `if-stale` · `always` |
+| `--max-tool-calls <n>` | Cap the number of tool calls |
+| `--json` | Emit the full response envelope as JSON |
 
-### HTTP
-
-Start:
+## HTTP API
 
 ```bash
-npm run serve:http
+npm run serve:http   # default: 127.0.0.1:8787
 ```
 
-Default address: `127.0.0.1:8787`
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/healthz` | Health check |
+| `GET` | `/v1/auth/status` | Auth state |
+| `GET` | `/v1/models` | Available models |
+| `POST` | `/v1/questions` | Ask a question |
 
-Endpoints:
-
-- `GET /healthz`
-- `GET /v1/auth/status`
-- `GET /v1/models`
-- `POST /v1/questions`
-
-Example:
+**Example request:**
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/questions \
+curl -s -X POST http://127.0.0.1:8787/v1/questions \
   -H 'content-type: application/json' \
   -d '{
     "question": "How does the router match params and wildcards?",
     "repos": [{ "repo": "honojs/hono" }]
-  }'
+  }' | jq .
 ```
 
-### MCP
-
-Start:
+## MCP Server
 
 ```bash
 npm run serve:mcp
 ```
 
-Tool:
+Exposes a single tool — `ask_codebase_question` — that any MCP-compatible client can call.
 
-- `ask_codebase_question`
+## Platform Notes
 
-### Limits
+### Windows
 
-- Public GitHub repos only
-- Read-only inspection
-- No chat memory
+Natively supported. Requires `git` on PATH.
 
-### Storage
+| Path | Default |
+|------|---------|
+| Data | `%LOCALAPPDATA%\immanence\data` |
+| Cache | `%LOCALAPPDATA%\immanence\cache` |
 
-Defaults:
+### Storage & Environment
 
-- data:
-  - Linux/macOS: `~/.local/share/immanence`
-  - Windows: `%LOCALAPPDATA%\\immanence\\data`
-- cache:
-  - Linux/macOS: `~/.cache/immanence`
-  - Windows: `%LOCALAPPDATA%\\immanence\\cache`
-- auth:
-  - Linux/macOS: `~/.local/share/immanence/auth.json`
-  - Windows: `%LOCALAPPDATA%\\immanence\\data\\auth.json`
-- repo snapshots:
-  - Linux/macOS: `~/.local/share/immanence/repos/github.com/...`
-  - Windows: `%LOCALAPPDATA%\\immanence\\data\\repos\\github.com\\...`
+| Variable | Purpose | Default (Linux/macOS) |
+|----------|---------|-----------------------|
+| `IMMANENCE_DATA_DIR` | Persistent data | `~/.local/share/immanence` |
+| `IMMANENCE_CACHE_DIR` | Cached snapshots | `~/.cache/immanence` |
+| `IMMANENCE_DEFAULT_MODEL` | Default model | *(built-in)* |
+| `BRAVE_SEARCH_API_KEY` | Web search augmentation | *(disabled)* |
 
-Environment:
+Repo snapshots live under `$IMMANENCE_DATA_DIR/repos/github.com/…` and are keyed by commit SHA.
 
-- `IMMANENCE_DATA_DIR`
-- `IMMANENCE_CACHE_DIR`
-- `IMMANENCE_DEFAULT_MODEL`
-- `BRAVE_SEARCH_API_KEY`
+## Limits
 
-## Developer Guide
+- Public GitHub repos only.
+- Read-only inspection — Immanence never modifies code.
+- No chat memory between questions.
 
-### Local Development
+## Contributing
 
 ```bash
-npm run dev -- --help
+npm run dev -- --help   # run from source
+npm test                # run the test suite
+npm run build           # production build
 ```
 
-### Main Commands
+Snapshots are cached by commit SHA. Refs are refreshed according to `--refresh`. Final answers always include the pinned SHA so citations stay stable over time.
 
-```bash
-npm test
-npm run build
-npm run serve:http
-npm run serve:mcp
-```
+## License
 
-### Notes
-
-- Repo caching is snapshot-based, keyed by commit SHA.
-- Refs are refreshed according to `--refresh`.
-- Final answers include commit SHAs so citations stay stable.
+[MIT](LICENSE) © Kaf
