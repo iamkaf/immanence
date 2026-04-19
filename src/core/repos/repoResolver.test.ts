@@ -133,6 +133,33 @@ function installFetchMock() {
         );
       }
 
+      const exactPackage = decodeURIComponent(parsed.pathname.slice(1));
+      if (exactPackage === "next") {
+        return new Response(
+          JSON.stringify({
+            name: "next",
+            repository: { url: "git+https://github.com/vercel/next.js.git" },
+            homepage: "https://github.com/vercel/next.js",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      if (exactPackage === "pi-ai") {
+        return new Response(
+          JSON.stringify({
+            name: "pi-ai",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
       return new Response(JSON.stringify({}), {
         status: 404,
         headers: { "content-type": "application/json" },
@@ -221,14 +248,51 @@ describe("resolveRepos", () => {
     expect(resolved.map((entry) => entry.repo)).toEqual(["tokio-rs/axum"]);
   });
 
-  it("allows multiple high-confidence sources for cross-source questions", async () => {
+  it("keeps only the strong primary source when secondary evidence is weak", async () => {
     const resolved = await resolveRepos({
       question: "Where does Next take its list of Google fonts from?",
     });
-    expect(resolved.map((entry) => entry.repo)).toEqual([
-      "vercel/next.js",
-      "google/fonts",
-    ]);
+    expect(resolved.map((entry) => entry.repo)).toEqual(["vercel/next.js"]);
+  });
+
+  it("uses AI planner hints to disambiguate weak GitHub results", async () => {
+    const resolved = await resolveRepos(
+      {
+        question: "Where does Next take its list of Google fonts from?",
+      },
+      {
+        plannerHints: {
+          explicitRepos: [],
+          primarySubjects: ["Next"],
+          secondarySubjects: ["Google Fonts"],
+          packageIdentifiers: ["next"],
+          repoQueries: ["google fonts"],
+          crossSource: true,
+        },
+      },
+    );
+
+    expect(resolved.map((entry) => entry.repo)).toEqual(["vercel/next.js"]);
+  });
+
+  it("prefers strong metadata evidence over equally scored weak search hits", async () => {
+    const resolved = await resolveRepos(
+      {
+        question: "Where does Next take its list of Google fonts from?",
+      },
+      {
+        plannerHints: {
+          explicitRepos: [],
+          primarySubjects: ["Next.js font system list source"],
+          secondarySubjects: ["Google Fonts catalog source in Next.js"],
+          packageIdentifiers: ["@next/font"],
+          repoQueries: ["Google"],
+          crossSource: true,
+        },
+      },
+    );
+
+    expect(resolved[0]?.repo).toBe("vercel/next.js");
   });
 
   it("returns an ambiguity error when nothing matches", async () => {
@@ -268,6 +332,21 @@ describe("resolveRepos", () => {
         );
       }
 
+      if (parsed.hostname === "registry.npmjs.org") {
+        const exactPackage = decodeURIComponent(parsed.pathname.slice(1));
+        if (exactPackage === "pi-ai") {
+          return new Response(
+            JSON.stringify({
+              name: "pi-ai",
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+      }
+
       return new Response(JSON.stringify({}), {
         status: 404,
         headers: { "content-type": "application/json" },
@@ -279,5 +358,62 @@ describe("resolveRepos", () => {
     });
 
     expect(resolved.map((entry) => entry.repo)).toEqual(["badlogic/pi-mono"]);
+  });
+
+  it("fails closed on weak search-only evidence for the Next prompt", async () => {
+    const fetchMock = installFetchMock();
+    (fetchMock as Mock).mockImplementation(async (url: string | URL) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "api.github.com") {
+        return new Response("rate limited", { status: 403 });
+      }
+
+      if (parsed.hostname === "registry.npmjs.org") {
+        const exactPackage = decodeURIComponent(parsed.pathname.slice(1));
+        if (exactPackage === "next") {
+          return new Response(
+            JSON.stringify({
+              name: "next",
+              repository: { url: "git+https://github.com/vercel/next.js.git" },
+              homepage: "https://github.com/vercel/next.js",
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+
+        if (parsed.pathname === "/-/v1/search") {
+          return new Response(JSON.stringify({ objects: [] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+      }
+
+      return new Response(JSON.stringify({}), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const resolved = await resolveRepos(
+      {
+        question: "Where does Next take its list of Google fonts from?",
+      },
+      {
+        plannerHints: {
+          explicitRepos: [],
+          primarySubjects: ["Next.js Google Fonts list source"],
+          secondarySubjects: ["Google Font metadata source in Next.js"],
+          packageIdentifiers: ["@next/font/google", "next/font/google module"],
+          repoQueries: ["Google Fonts", "Next.js"],
+          crossSource: true,
+        },
+      },
+    );
+
+    expect(resolved.map((entry) => entry.repo)).toEqual(["vercel/next.js"]);
   });
 });

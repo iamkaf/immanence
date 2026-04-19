@@ -18,7 +18,11 @@ export function buildSystemPrompt(args: {
     "Answer using repository evidence whenever possible.",
     "Do not speculate about code you have not inspected.",
     "Use the provided repo handles directly with list/read/search.",
-    "Use clone only when you need an additional public GitHub repo that is not already available.",
+    "Every list/read/search call must use the exact repoId from the available repository list below.",
+    "repoId is not the repo name, alias, or workspace path.",
+    "Do not call clone for a repository that is already listed below.",
+    "Use clone only when you truly need an additional public GitHub repo that is not already available.",
+    "Once you have evidence from a few relevant files, stop exploring and answer.",
     args.includeWebSearch
       ? "Use web_search only when repository contents are insufficient or the question needs current external context."
       : "Do not rely on external web knowledge because web_search is unavailable for this request.",

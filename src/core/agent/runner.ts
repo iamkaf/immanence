@@ -21,6 +21,7 @@ import { resolveCodexApiKey, resolveCodexModel } from "../auth/codexAuth.js";
 import { cleanupRepoHandles } from "../repos/repoCache.js";
 
 const MAX_TOOL_RESULT_CHARS = 200_000;
+const MAX_AGENT_TURNS = 12;
 
 function assistantText(message: AssistantMessage) {
   return message.content
@@ -150,7 +151,21 @@ export async function runAgentQuestion(args: {
     let usage: QuestionResponse["usage"];
     let toolCallCount = 0;
 
-    for (let turn = 0; turn < 12; turn += 1) {
+    for (let turn = 0; turn < MAX_AGENT_TURNS; turn += 1) {
+      if (turn >= 8 && sessionState.citations.length >= 3) {
+        messages.push({
+          role: "user",
+          content: [
+            "You already have enough evidence to answer.",
+            `You have ${sessionState.citations.length} citations and ${
+              MAX_AGENT_TURNS - turn
+            } turns remaining.`,
+            "Do not call more tools unless one critical file is still missing.",
+            "Prefer answering now with the evidence you have.",
+          ].join(" "),
+          timestamp: Date.now(),
+        });
+      }
       args.onProgress?.({
         phase: "agent",
         message: `turn ${turn + 1}: sending request`,

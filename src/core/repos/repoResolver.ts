@@ -6,6 +6,7 @@ import type {
   ResolvedRepoInput,
 } from "../types.js";
 import { parseGitHubRepo } from "./github.js";
+import type { SourceDiscoveryPlan } from "./sourcePlanner.js";
 
 type GitHubSearchResult = {
   full_name: string;
@@ -41,6 +42,12 @@ type PypiResult = {
   };
 };
 
+type NpmPackageMetadata = {
+  name?: string;
+  repository?: string | { url?: string };
+  homepage?: string;
+};
+
 type QuestionContext = {
   normalizedQuestion: string;
   packageContext: boolean;
@@ -55,6 +62,7 @@ type DiscoveryCandidate = {
   reason: string;
   provider: string;
   signal: string;
+  strong: boolean;
 };
 
 type CandidateBucket = {
@@ -63,6 +71,7 @@ type CandidateBucket = {
   reason: string;
   providers: Set<string>;
   signals: Set<string>;
+  strong: boolean;
 };
 
 const DISCOVERY_STOP_WORDS = new Set([
@@ -199,6 +208,17 @@ function extractPackageIdentifiers(question: string) {
   ]);
 }
 
+function isLikelyPackageIdentifier(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  if ((trimmed.match(/\//g) ?? []).length > 1) return false;
+  return /^@?[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?$/.test(trimmed);
+}
+
+function normalizePackageIdentifier(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function extractGitHubQueries(question: string) {
   return unique([
     ...extractExplicitRepoMentions(question),
@@ -263,6 +283,27 @@ async function searchNpmPackages(query: string): Promise<NpmSearchResult[]> {
   return payload.objects ?? [];
 }
 
+async function fetchNpmPackageMetadata(
+  query: string,
+): Promise<NpmPackageMetadata | null> {
+  const url = new URL(
+    `https://registry.npmjs.org/${encodeURIComponent(normalizePackageIdentifier(query))}`,
+  );
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "immanence",
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as NpmPackageMetadata;
+}
+
 async function fetchCrateMetadata(query: string): Promise<CratesIoResult | null> {
   const url = new URL(`https://crates.io/api/v1/crates/${encodeURIComponent(query)}`);
   const response = await fetch(url, {
@@ -303,6 +344,15 @@ function extractGitHubRepoFromUrl(input?: string | null) {
   );
   if (!match) return null;
   return `${match[1]}/${match[2]}`;
+}
+
+function extractGitHubRepoFromNpmRepository(
+  repository?: string | { url?: string },
+) {
+  if (typeof repository === "string") {
+    return extractGitHubRepoFromUrl(repository);
+  }
+  return extractGitHubRepoFromUrl(repository?.url);
 }
 
 function scoreGitHubCandidate(
@@ -366,6 +416,25 @@ function scoreNpmCandidate(
   if (repository) score += 0.25;
   if (homepage) score += 0.1;
   if (!repository && !homepage) score -= 0.6;
+
+  return Math.max(0, Math.min(score, 1.5));
+}
+
+function scoreExactNpmCandidate(
+  context: QuestionContext,
+  query: string,
+  packageName: string,
+) {
+  const normalizedQuery = normalizePackageIdentifier(query);
+  const normalizedPackage = packageName.toLowerCase();
+  const unscopedName = normalizedPackage.split("/").at(-1) ?? normalizedPackage;
+
+  let score = 0.85;
+  if (normalizedPackage === normalizedQuery) score += 0.3;
+  if (normalizedPackage.endsWith(`/${normalizedQuery}`)) score += 0.35;
+  if (context.normalizedQuestion.includes(normalizedPackage)) score += 0.25;
+  if (context.normalizedQuestion.includes(unscopedName)) score += 0.1;
+  if (context.packageContext) score += 0.1;
 
   return Math.max(0, Math.min(score, 1.5));
 }
@@ -439,6 +508,7 @@ function addCandidate(
       reason: candidate.reason,
       providers: new Set([candidate.provider]),
       signals: new Set([candidate.signal]),
+      strong: candidate.strong,
     });
     return;
   }
@@ -446,6 +516,7 @@ function addCandidate(
   existing.confidence = mergeConfidence(existing.confidence, candidate.confidence);
   existing.providers.add(candidate.provider);
   existing.signals.add(candidate.signal);
+  existing.strong = existing.strong || candidate.strong;
   if (candidate.confidence >= existing.confidence || !existing.reason) {
     existing.reason = candidate.reason;
   }
@@ -464,6 +535,7 @@ function fallbackCandidates(
       reason: `Found explicit repository mention ${repo}.`,
       provider: "explicit_question_scope",
       signal: repo,
+      strong: true,
     });
   }
 
@@ -475,6 +547,7 @@ function fallbackCandidates(
       reason: "Built from repoHints.owner and repoHints.repo.",
       provider: "request_repo_hints",
       signal: repo,
+      strong: true,
     });
   }
 
@@ -483,12 +556,37 @@ function fallbackCandidates(
 
 async function discoverRegistryCandidates(
   question: string,
+  plannerHints?: SourceDiscoveryPlan | null,
 ): Promise<DiscoveryCandidate[]> {
   const context = buildQuestionContext(question);
-  const identifiers = extractPackageIdentifiers(question);
+  const identifiers = unique([
+    ...(plannerHints?.packageIdentifiers ?? []),
+    ...extractPackageIdentifiers(question),
+  ])
+    .filter(isLikelyPackageIdentifier)
+    .map(normalizePackageIdentifier);
   const candidates: DiscoveryCandidate[] = [];
 
   for (const identifier of identifiers) {
+    const exactNpm = await fetchNpmPackageMetadata(identifier);
+    const exactRepo =
+      extractGitHubRepoFromNpmRepository(exactNpm?.repository) ??
+      extractGitHubRepoFromUrl(exactNpm?.homepage);
+    if (exactRepo && exactNpm?.name) {
+      candidates.push({
+        repo: exactRepo,
+        confidence: scoreExactNpmCandidate(context, identifier, exactNpm.name),
+        reason: `Matched npm package ${JSON.stringify(identifier)} to ${exactNpm.name}, which links to ${exactRepo}.`,
+        provider: "npm_registry_exact",
+        signal: identifier,
+        strong: true,
+      });
+    }
+
+    if (!identifier.includes("-") && !identifier.startsWith("@")) {
+      continue;
+    }
+
     const npmResults = await searchNpmPackages(identifier);
     for (const result of npmResults) {
       const repo =
@@ -501,8 +599,9 @@ async function discoverRegistryCandidates(
         repo,
         confidence,
         reason: npmCandidateReason(identifier, result, repo),
-        provider: "npm_registry",
+        provider: "npm_registry_search",
         signal: identifier.toLowerCase(),
+        strong: false,
       });
     }
 
@@ -517,6 +616,7 @@ async function discoverRegistryCandidates(
         reason: crateCandidateReason(identifier, crateRepo),
         provider: "crates_io",
         signal: identifier.toLowerCase(),
+        strong: true,
       });
     }
 
@@ -534,6 +634,7 @@ async function discoverRegistryCandidates(
         reason: pypiCandidateReason(identifier, pypiRepo),
         provider: "pypi",
         signal: identifier.toLowerCase(),
+        strong: true,
       });
     }
   }
@@ -543,10 +644,16 @@ async function discoverRegistryCandidates(
 
 async function discoverGitHubCandidates(
   question: string,
+  plannerHints?: SourceDiscoveryPlan | null,
   onProgress?: (event: ProgressEvent) => void,
 ): Promise<{ candidates: DiscoveryCandidate[]; searchUnavailable: boolean }> {
   const context = buildQuestionContext(question);
-  const queries = extractGitHubQueries(question);
+  const queries = unique([
+    ...(plannerHints?.repoQueries ?? []),
+    ...(plannerHints?.primarySubjects ?? []),
+    ...(plannerHints?.secondarySubjects ?? []),
+    ...extractGitHubQueries(question),
+  ]);
   const candidates: DiscoveryCandidate[] = [];
   let searchUnavailable = false;
 
@@ -583,6 +690,7 @@ async function discoverGitHubCandidates(
         reason: candidateReason(query, result),
         provider: "github_repo_search",
         signal: query.toLowerCase(),
+        strong: false,
       });
     }
   }
@@ -597,6 +705,9 @@ function rankCandidates(candidates: DiscoveryCandidate[]): RepoCandidate[] {
   }
   return [...buckets.values()]
     .sort((left, right) => {
+      if (left.strong !== right.strong) {
+        return left.strong ? -1 : 1;
+      }
       if (right.confidence !== left.confidence) {
         return right.confidence - left.confidence;
       }
@@ -605,20 +716,35 @@ function rankCandidates(candidates: DiscoveryCandidate[]): RepoCandidate[] {
     .map((candidate) => ({
       repo: candidate.repo,
       confidence: Number(candidate.confidence.toFixed(4)),
-      reason: candidate.reason,
+      reason: candidate.strong
+        ? candidate.reason
+        : `${candidate.reason} Search evidence only.`,
     }));
 }
 
-function shouldIncludeSecondary(question: string, ranked: RepoCandidate[]) {
+function shouldIncludeSecondary(
+  question: string,
+  ranked: RepoCandidate[],
+  plannerHints?: SourceDiscoveryPlan | null,
+) {
   const [top, second] = ranked;
   if (!top || !second) return false;
   if (top.confidence < 0.9 || second.confidence < 0.85) return false;
-  return buildQuestionContext(question).crossSourceContext;
+  return (
+    !!plannerHints?.crossSource || buildQuestionContext(question).crossSourceContext
+  );
+}
+
+function hasStrongEvidence(candidate: RepoCandidate) {
+  return !candidate.reason.endsWith("Search evidence only.");
 }
 
 export async function resolveRepos(
   request: QuestionRequest,
-  onProgress?: (event: ProgressEvent) => void,
+  options: {
+    onProgress?: (event: ProgressEvent) => void;
+    plannerHints?: SourceDiscoveryPlan | null;
+  } = {},
 ): Promise<ResolvedRepoInput[]> {
   if (request.repos && request.repos.length > 0) {
     return request.repos.map((entry) =>
@@ -628,14 +754,19 @@ export async function resolveRepos(
 
   const question = request.question.trim();
   const seededCandidates = fallbackCandidates(question, request);
+  const plannerHints = options.plannerHints;
+
+  if (plannerHints?.explicitRepos?.length) {
+    return plannerHints.explicitRepos.map((repo) => toResolvedRepoInput(repo, true));
+  }
 
   if (seededCandidates.some((candidate) => candidate.provider === "explicit_question_scope")) {
     return seededCandidates.map((candidate) => toResolvedRepoInput(candidate.repo, true));
   }
 
-  const registryCandidates = await discoverRegistryCandidates(question);
+  const registryCandidates = await discoverRegistryCandidates(question, plannerHints);
   const { candidates: githubCandidates, searchUnavailable } =
-    await discoverGitHubCandidates(question, onProgress);
+    await discoverGitHubCandidates(question, plannerHints, options.onProgress);
 
   const ranked = rankCandidates([
     ...seededCandidates,
@@ -662,8 +793,26 @@ export async function resolveRepos(
   }
 
   if (top.confidence >= 0.9) {
+    if (!hasStrongEvidence(top)) {
+      throw new AppError(
+        "REPO_INFERENCE_AMBIGUOUS",
+        "Source discovery produced only weak search evidence.",
+        400,
+        {
+          candidates: ranked.slice(0, 5),
+          suggestedRequest: {
+            question,
+            repos: ranked.slice(0, 2).map((entry) => ({ repo: entry.repo })),
+          },
+        },
+      );
+    }
+
     const resolved = [toResolvedRepoInput(top.repo, true)];
-    if (shouldIncludeSecondary(question, ranked)) {
+    if (
+      shouldIncludeSecondary(question, ranked, plannerHints) &&
+      hasStrongEvidence(ranked[1]!)
+    ) {
       resolved.push(toResolvedRepoInput(ranked[1]!.repo, true));
     }
     return resolved;

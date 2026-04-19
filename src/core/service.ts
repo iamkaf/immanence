@@ -9,6 +9,7 @@ import {
   type RepoInferenceAmbiguous,
 } from "./types.js";
 import { resolveRepos } from "./repos/repoResolver.js";
+import { planSourcesWithAi } from "./repos/sourcePlanner.js";
 import { prepareRepoHandle } from "./repos/repoCache.js";
 import { runAgentQuestion } from "./agent/runner.js";
 
@@ -26,7 +27,29 @@ export async function answerQuestion(
   try {
     hooks.onProgress?.({ phase: "request", message: "validated request" });
     hooks.onProgress?.({ phase: "resolve", message: "planning sources" });
-    const resolvedRepos = await resolveRepos(request, hooks.onProgress);
+    const plannerHints =
+      request.repos && request.repos.length > 0
+        ? null
+        : await planSourcesWithAi({
+            config,
+            question: request.question,
+            modelOverride: request.model,
+          });
+    if (plannerHints) {
+      hooks.onProgress?.({
+        phase: "resolve",
+        message: "AI source plan ready",
+        detail: [
+          ...plannerHints.primarySubjects,
+          ...plannerHints.secondarySubjects,
+          ...plannerHints.explicitRepos,
+        ].join(", "),
+      });
+    }
+    const resolvedRepos = await resolveRepos(request, {
+      onProgress: hooks.onProgress,
+      plannerHints,
+    });
     hooks.onProgress?.({
       phase: "resolve",
       message: "resolved repositories",

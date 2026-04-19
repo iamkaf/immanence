@@ -5,7 +5,7 @@ export function buildAgentTools(includeWebSearch: boolean): Tool[] {
     {
       name: "clone",
       description:
-        "Clone or reuse a public GitHub repository and return a stable repo handle.",
+        "Clone or reuse an additional public GitHub repository and return a stable repo handle. Do not use this for repositories already listed in the session context.",
       parameters: Type.Object({
         repo: Type.String({
           description:
@@ -27,7 +27,7 @@ export function buildAgentTools(includeWebSearch: boolean): Tool[] {
       parameters: Type.Object({
         repoId: Type.String({
           description:
-            "Repository handle ID returned by clone or provided in the session context.",
+            "Exact repository handle ID from the session context or returned by clone, for example owner-repo-1a2b3c4d. Do not use alias or repo name here.",
         }),
         path: Type.Optional(
           Type.String({
@@ -49,7 +49,7 @@ export function buildAgentTools(includeWebSearch: boolean): Tool[] {
       parameters: Type.Object({
         repoId: Type.String({
           description:
-            "Repository handle ID returned by clone or provided in the session context.",
+            "Exact repository handle ID from the session context or returned by clone, for example owner-repo-1a2b3c4d. Do not use alias or repo name here.",
         }),
         path: Type.String({
           description: "File path relative to the repo root.",
@@ -68,7 +68,7 @@ export function buildAgentTools(includeWebSearch: boolean): Tool[] {
       parameters: Type.Object({
         repoId: Type.String({
           description:
-            "Repository handle ID returned by clone or provided in the session context.",
+            "Exact repository handle ID from the session context or returned by clone, for example owner-repo-1a2b3c4d. Do not use alias or repo name here.",
         }),
         query: Type.String({ description: "Search string or regex." }),
         pathGlob: Type.Optional(
