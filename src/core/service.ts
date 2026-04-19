@@ -25,7 +25,7 @@ export async function answerQuestion(
 
   try {
     hooks.onProgress?.({ phase: "request", message: "validated request" });
-    hooks.onProgress?.({ phase: "resolve", message: "resolving repositories" });
+    hooks.onProgress?.({ phase: "resolve", message: "planning sources" });
     const resolvedRepos = await resolveRepos(request, hooks.onProgress);
     hooks.onProgress?.({
       phase: "resolve",

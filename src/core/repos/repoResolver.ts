@@ -15,58 +15,198 @@ type GitHubSearchResult = {
   owner: { login: string };
 };
 
-function unique<T>(values: T[]) {
+type NpmSearchResult = {
+  package: {
+    name: string;
+    links?: {
+      repository?: string;
+      homepage?: string;
+    };
+  };
+};
+
+type CratesIoResult = {
+  crate?: {
+    id: string;
+    repository?: string | null;
+    homepage?: string | null;
+  };
+};
+
+type PypiResult = {
+  info?: {
+    name?: string;
+    home_page?: string | null;
+    project_urls?: Record<string, string> | null;
+  };
+};
+
+type QuestionContext = {
+  normalizedQuestion: string;
+  packageContext: boolean;
+  crateContext: boolean;
+  pythonContext: boolean;
+  crossSourceContext: boolean;
+};
+
+type DiscoveryCandidate = {
+  repo: string;
+  confidence: number;
+  reason: string;
+  provider: string;
+  signal: string;
+};
+
+type CandidateBucket = {
+  repo: string;
+  confidence: number;
+  reason: string;
+  providers: Set<string>;
+  signals: Set<string>;
+};
+
+const DISCOVERY_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "do",
+  "does",
+  "for",
+  "from",
+  "get",
+  "how",
+  "i",
+  "in",
+  "is",
+  "its",
+  "library",
+  "list",
+  "make",
+  "of",
+  "package",
+  "repo",
+  "repository",
+  "server",
+  "take",
+  "the",
+  "their",
+  "to",
+  "top",
+  "what",
+  "where",
+  "with",
+]);
+
+function unique<T>(values: Iterable<T>) {
   return [...new Set(values)];
 }
 
-const KNOWN_REPO_HINTS: Array<{
-  pattern: RegExp;
-  repos: string[];
-  confidence: number;
-  reason: string;
-}> = [
-  {
-    pattern: /openclaw/i,
-    repos: ["openclaw/openclaw"],
-    confidence: 1,
-    reason: 'Matched "OpenClaw" to openclaw/openclaw.',
-  },
-  {
-    pattern: /\bjson-render\b/i,
-    repos: ["vercel-labs/json-render"],
-    confidence: 1,
-    reason: 'Matched "json-render" to vercel-labs/json-render.',
-  },
-  {
-    pattern: /\bnext\b/i,
-    repos: ["vercel/next.js"],
-    confidence: 0.95,
-    reason: 'Matched "Next" to vercel/next.js.',
-  },
-  {
-    pattern: /\bgoogle fonts\b/i,
-    repos: ["google/fonts"],
-    confidence: 0.86,
-    reason: 'Matched "Google Fonts" to google/fonts.',
-  },
-];
+function buildQuestionContext(question: string): QuestionContext {
+  const normalizedQuestion = question.toLowerCase();
+  return {
+    normalizedQuestion,
+    packageContext: /\b(package|library|module|framework|sdk)\b/i.test(question),
+    crateContext: /\b(crate|cargo|rust)\b/i.test(question),
+    pythonContext: /\b(python|pypi|pip)\b/i.test(question),
+    crossSourceContext:
+      /\b(from|with|using|sync(?:ing)?|compare|between|versus|vs\.?|and)\b/i.test(
+        question,
+      ),
+  };
+}
 
-function extractSearchTokens(question: string) {
-  const slashRepoMatches = [
-    ...question.matchAll(/\b([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)\b/g),
-  ].map((match) => match[1] ?? "");
-  const kebabMatches = [
-    ...question.matchAll(/\b([a-z0-9]+(?:-[a-z0-9]+)+)\b/g),
-  ].map((match) => match[1] ?? "");
-  const known = [
-    ...(/openclaw/i.test(question) ? ["openclaw"] : []),
-    ...(/\bjson-render\b/i.test(question) ? ["json-render"] : []),
-    ...(/\bnext\b/i.test(question) ? ["next.js", "vercel next"] : []),
-    ...(/\bgoogle fonts\b/i.test(question) ? ["google fonts"] : []),
-  ];
-  return unique([...slashRepoMatches, ...kebabMatches, ...known]).filter(
-    Boolean,
+function extractExplicitRepoMentions(question: string) {
+  return unique(
+    [...question.matchAll(/(?<!@)\b([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)\b/g)].map(
+      (match) => match[1] ?? "",
+    ),
+  ).filter(Boolean);
+}
+
+function extractContextualIdentifiers(question: string) {
+  return unique(
+    [
+      ...question.matchAll(
+        /\b(?:with|using|use|for|from|in|about)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9_.+-]{1,})\s+(?:library|package|crate|module|framework|sdk)\b/g,
+      ),
+    ].map((match) => match[1] ?? ""),
+  ).filter(Boolean);
+}
+
+function extractSubjectIdentifiers(question: string) {
+  return unique(
+    [
+      ...question.matchAll(
+        /\b(?:how|what|where|why)\s+does\s+([A-Za-z][A-Za-z0-9_.+-]{1,})\b/g,
+      ),
+      ...question.matchAll(
+        /\b(?:how|what|where|why)\s+is\s+([A-Za-z][A-Za-z0-9_.+-]{1,})\b/g,
+      ),
+    ].map((match) => match[1] ?? ""),
+  )
+    .filter(Boolean)
+    .filter((token) => !DISCOVERY_STOP_WORDS.has(token.toLowerCase()));
+}
+
+function extractScopedPackageIdentifiers(question: string) {
+  return unique(
+    [
+      ...question.matchAll(/(^|[^\w/])(@[a-z0-9_.-]+\/[a-z0-9_.-]+)/gi),
+    ].map((match) => match[2] ?? ""),
+  ).filter(Boolean);
+}
+
+function extractKebabIdentifiers(question: string) {
+  return unique(
+    [...question.matchAll(/\b([a-z0-9]+(?:-[a-z0-9]+)+)\b/g)].map(
+      (match) => match[1] ?? "",
+    ),
+  ).filter(Boolean);
+}
+
+function extractProjectTokens(question: string) {
+  return unique(
+    [
+      ...question.matchAll(/\b([A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+)\b/g),
+      ...question.matchAll(/\b([A-Z][a-z0-9]{2,})\b/g),
+    ].map((match) => match[1] ?? ""),
+  )
+    .filter(Boolean)
+    .filter((token) => !DISCOVERY_STOP_WORDS.has(token.toLowerCase()));
+}
+
+function extractQueryBigrams(question: string) {
+  const words = (question.toLowerCase().match(/[a-z0-9][a-z0-9.+_-]*/g) ?? []).filter(
+    (word) => !DISCOVERY_STOP_WORDS.has(word),
   );
+  const bigrams: string[] = [];
+  for (let index = 0; index < words.length - 1; index += 1) {
+    const left = words[index];
+    const right = words[index + 1];
+    if (!left || !right) continue;
+    bigrams.push(`${left} ${right}`);
+  }
+  return unique(bigrams);
+}
+
+function extractPackageIdentifiers(question: string) {
+  return unique([
+    ...extractScopedPackageIdentifiers(question),
+    ...extractKebabIdentifiers(question),
+    ...extractContextualIdentifiers(question),
+    ...extractSubjectIdentifiers(question),
+  ]);
+}
+
+function extractGitHubQueries(question: string) {
+  return unique([
+    ...extractExplicitRepoMentions(question),
+    ...extractProjectTokens(question),
+    ...extractKebabIdentifiers(question),
+    ...extractContextualIdentifiers(question),
+    ...extractQueryBigrams(question),
+  ]).filter(Boolean);
 }
 
 async function searchGitHubRepositories(
@@ -103,44 +243,167 @@ async function searchGitHubRepositories(
   return payload.items ?? [];
 }
 
-function scoreCandidate(
-  question: string,
+async function searchNpmPackages(query: string): Promise<NpmSearchResult[]> {
+  const url = new URL("https://registry.npmjs.org/-/v1/search");
+  url.searchParams.set("text", query);
+  url.searchParams.set("size", "10");
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "immanence",
+    },
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as { objects?: NpmSearchResult[] };
+  return payload.objects ?? [];
+}
+
+async function fetchCrateMetadata(query: string): Promise<CratesIoResult | null> {
+  const url = new URL(`https://crates.io/api/v1/crates/${encodeURIComponent(query)}`);
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "immanence",
+    },
+  });
+  if (!response.ok) {
+    return null;
+  }
+  return (await response.json()) as CratesIoResult;
+}
+
+async function fetchPypiMetadata(query: string): Promise<PypiResult | null> {
+  const url = new URL(`https://pypi.org/pypi/${encodeURIComponent(query)}/json`);
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "immanence",
+    },
+  });
+  if (!response.ok) {
+    return null;
+  }
+  return (await response.json()) as PypiResult;
+}
+
+function extractGitHubRepoFromUrl(input?: string | null) {
+  if (!input) return null;
+  const normalized = input
+    .trim()
+    .replace(/^git\+/, "")
+    .replace(/^git:\/\//, "https://")
+    .replace(/\.git$/i, "");
+  const match = normalized.match(
+    /^https:\/\/github\.com\/([^/\s]+)\/([^/\s#]+)$/i,
+  );
+  if (!match) return null;
+  return `${match[1]}/${match[2]}`;
+}
+
+function scoreGitHubCandidate(
+  context: QuestionContext,
   query: string,
   candidate: GitHubSearchResult,
 ) {
   let score = 0;
-  const normalizedQuestion = question.toLowerCase();
   const repoFullName = candidate.full_name.toLowerCase();
   const repoName = candidate.name.toLowerCase();
   const ownerName = candidate.owner.login.toLowerCase();
   const normalizedQuery = query.toLowerCase();
+  const queryTerms = normalizedQuery.split(/\s+/).filter(Boolean);
 
-  if (normalizedQuestion.includes(repoFullName)) score += 1;
-  if (normalizedQuestion.includes(repoName)) score += 0.6;
-  if (normalizedQuestion.includes(ownerName)) score += 0.25;
-  if (repoName === normalizedQuery) score += 0.9;
-  if (repoFullName === normalizedQuery) score += 1.2;
-  if (repoName.includes(normalizedQuery) || normalizedQuery.includes(repoName))
-    score += 0.3;
+  if (context.normalizedQuestion.includes(repoFullName)) score += 1.2;
+  if (context.normalizedQuestion.includes(repoName)) score += 0.55;
+  if (context.normalizedQuestion.includes(ownerName)) score += 0.25;
+  if (repoName === normalizedQuery) score += 0.85;
+  if (repoFullName === normalizedQuery) score += 1.3;
+  if (
+    queryTerms.length >= 2 &&
+    queryTerms.includes(ownerName) &&
+    queryTerms.includes(repoName)
+  ) {
+    score += 0.95;
+  }
+  if (queryTerms.length >= 2 && repoFullName === queryTerms.join("/")) {
+    score += 1.15;
+  }
+  if (queryTerms.includes(ownerName)) score += 0.2;
+  if (queryTerms.includes(repoName)) score += 0.2;
+  if (repoName.includes(normalizedQuery) || normalizedQuery.includes(repoName)) {
+    score += 0.25;
+  }
   if (candidate.archived) score -= 0.2;
   score += Math.min(candidate.stargazers_count / 50000, 0.15);
-
-  if (/next/i.test(question) && repoFullName === "vercel/next.js") score += 1.2;
-  if (/google fonts/i.test(question) && repoFullName === "google/fonts")
-    score += 0.45;
-  if (/openclaw/i.test(question) && repoFullName === "openclaw/openclaw")
-    score += 1;
-  if (
-    /json-render/i.test(question) &&
-    repoFullName === "vercel-labs/json-render"
-  )
-    score += 1;
 
   return Math.max(0, Math.min(score, 1.5));
 }
 
+function scoreNpmCandidate(
+  context: QuestionContext,
+  query: string,
+  candidate: NpmSearchResult,
+) {
+  const packageName = candidate.package.name.toLowerCase();
+  const normalizedQuery = query.toLowerCase();
+  const unscopedName = packageName.split("/").at(-1) ?? packageName;
+  const repository = extractGitHubRepoFromUrl(
+    candidate.package.links?.repository,
+  );
+  const homepage = extractGitHubRepoFromUrl(candidate.package.links?.homepage);
+
+  let score = 0;
+  if (packageName === normalizedQuery) score += 0.75;
+  if (packageName.endsWith(`/${normalizedQuery}`)) score += 0.95;
+  if (unscopedName === normalizedQuery) score += 0.35;
+  if (context.normalizedQuestion.includes(packageName)) score += 1.1;
+  if (context.normalizedQuestion.includes(unscopedName)) score += 0.15;
+  if (context.packageContext) score += 0.15;
+  if (repository) score += 0.25;
+  if (homepage) score += 0.1;
+  if (!repository && !homepage) score -= 0.6;
+
+  return Math.max(0, Math.min(score, 1.5));
+}
+
+function scoreCrateCandidate(context: QuestionContext, query: string) {
+  let score = 0.8;
+  if (context.crateContext) score += 0.2;
+  if (context.packageContext) score += 0.1;
+  if (context.normalizedQuestion.includes(query.toLowerCase())) score += 0.2;
+  return Math.max(0, Math.min(score, 1.5));
+}
+
+function scorePypiCandidate(context: QuestionContext, query: string) {
+  let score = 0.7;
+  if (context.pythonContext) score += 0.25;
+  if (context.packageContext) score += 0.1;
+  if (context.normalizedQuestion.includes(query.toLowerCase())) score += 0.2;
+  return Math.max(0, Math.min(score, 1.5));
+}
+
 function candidateReason(query: string, candidate: GitHubSearchResult) {
-  return `Matched "${query}" to ${candidate.full_name}.`;
+  return `Matched ${JSON.stringify(query)} to ${candidate.full_name} via GitHub repository search.`;
+}
+
+function npmCandidateReason(
+  query: string,
+  candidate: NpmSearchResult,
+  repo: string,
+) {
+  return `Matched npm package ${JSON.stringify(query)} to ${candidate.package.name}, which links to ${repo}.`;
+}
+
+function crateCandidateReason(query: string, repo: string) {
+  return `Matched crate ${JSON.stringify(query)} to ${repo} via crates.io metadata.`;
+}
+
+function pypiCandidateReason(query: string, repo: string) {
+  return `Matched package ${JSON.stringify(query)} to ${repo} via PyPI metadata.`;
 }
 
 function toResolvedRepoInput(
@@ -160,76 +423,131 @@ function toResolvedRepoInput(
   };
 }
 
+function mergeConfidence(previous: number, next: number) {
+  return Math.min(1.5, previous + next * 0.65);
+}
+
+function addCandidate(
+  buckets: Map<string, CandidateBucket>,
+  candidate: DiscoveryCandidate,
+) {
+  const existing = buckets.get(candidate.repo);
+  if (!existing) {
+    buckets.set(candidate.repo, {
+      repo: candidate.repo,
+      confidence: candidate.confidence,
+      reason: candidate.reason,
+      providers: new Set([candidate.provider]),
+      signals: new Set([candidate.signal]),
+    });
+    return;
+  }
+
+  existing.confidence = mergeConfidence(existing.confidence, candidate.confidence);
+  existing.providers.add(candidate.provider);
+  existing.signals.add(candidate.signal);
+  if (candidate.confidence >= existing.confidence || !existing.reason) {
+    existing.reason = candidate.reason;
+  }
+}
+
 function fallbackCandidates(
   question: string,
   request: QuestionRequest,
-): RepoCandidate[] {
-  const candidates: RepoCandidate[] = [];
+): DiscoveryCandidate[] {
+  const candidates: DiscoveryCandidate[] = [];
 
-  for (const match of question.matchAll(
-    /\b([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)\b/g,
-  )) {
-    const repo = match[1]?.trim();
-    if (!repo) continue;
+  for (const repo of extractExplicitRepoMentions(question)) {
     candidates.push({
       repo,
-      confidence: 1,
+      confidence: 1.5,
       reason: `Found explicit repository mention ${repo}.`,
+      provider: "explicit_question_scope",
+      signal: repo,
     });
   }
 
   if (request.repoHints?.owner && request.repoHints?.repo) {
+    const repo = `${request.repoHints.owner}/${request.repoHints.repo}`;
     candidates.push({
-      repo: `${request.repoHints.owner}/${request.repoHints.repo}`,
-      confidence: 0.95,
+      repo,
+      confidence: 1.35,
       reason: "Built from repoHints.owner and repoHints.repo.",
+      provider: "request_repo_hints",
+      signal: repo,
     });
   }
 
-  for (const hint of KNOWN_REPO_HINTS) {
-    if (!hint.pattern.test(question)) continue;
-    for (const repo of hint.repos) {
+  return candidates;
+}
+
+async function discoverRegistryCandidates(
+  question: string,
+): Promise<DiscoveryCandidate[]> {
+  const context = buildQuestionContext(question);
+  const identifiers = extractPackageIdentifiers(question);
+  const candidates: DiscoveryCandidate[] = [];
+
+  for (const identifier of identifiers) {
+    const npmResults = await searchNpmPackages(identifier);
+    for (const result of npmResults) {
+      const repo =
+        extractGitHubRepoFromUrl(result.package.links?.repository) ??
+        extractGitHubRepoFromUrl(result.package.links?.homepage);
+      if (!repo) continue;
+      const confidence = scoreNpmCandidate(context, identifier, result);
+      if (confidence <= 0) continue;
       candidates.push({
         repo,
-        confidence: hint.confidence,
-        reason: hint.reason,
+        confidence,
+        reason: npmCandidateReason(identifier, result, repo),
+        provider: "npm_registry",
+        signal: identifier.toLowerCase(),
+      });
+    }
+
+    const crate = await fetchCrateMetadata(identifier);
+    const crateRepo =
+      extractGitHubRepoFromUrl(crate?.crate?.repository) ??
+      extractGitHubRepoFromUrl(crate?.crate?.homepage);
+    if (crateRepo) {
+      candidates.push({
+        repo: crateRepo,
+        confidence: scoreCrateCandidate(context, identifier),
+        reason: crateCandidateReason(identifier, crateRepo),
+        provider: "crates_io",
+        signal: identifier.toLowerCase(),
+      });
+    }
+
+    const pypi = await fetchPypiMetadata(identifier);
+    const pypiRepo =
+      extractGitHubRepoFromUrl(
+        pypi?.info?.project_urls?.Source ??
+          pypi?.info?.project_urls?.Homepage ??
+          pypi?.info?.home_page,
+      ) ?? null;
+    if (pypiRepo) {
+      candidates.push({
+        repo: pypiRepo,
+        confidence: scorePypiCandidate(context, identifier),
+        reason: pypiCandidateReason(identifier, pypiRepo),
+        provider: "pypi",
+        signal: identifier.toLowerCase(),
       });
     }
   }
 
-  return unique(candidates.map((candidate) => candidate.repo)).map(
-    (repo) => candidates.find((candidate) => candidate.repo === repo)!,
-  );
+  return candidates;
 }
 
-export async function resolveRepos(
-  request: QuestionRequest,
+async function discoverGitHubCandidates(
+  question: string,
   onProgress?: (event: ProgressEvent) => void,
-): Promise<ResolvedRepoInput[]> {
-  if (request.repos && request.repos.length > 0) {
-    return request.repos.map((entry) =>
-      toResolvedRepoInput(entry.repo, false, entry.ref, entry.alias),
-    );
-  }
-
-  const question = request.question.trim();
-  const queries = extractSearchTokens(question);
-  if (queries.length === 0) {
-    throw new AppError(
-      "REPO_INFERENCE_AMBIGUOUS",
-      "Could not infer any repository candidates from the question.",
-      400,
-      {
-        candidates: [],
-        suggestedRequest: {
-          question,
-          repos: [],
-        },
-      },
-    );
-  }
-
-  const scored = new Map<string, RepoCandidate>();
+): Promise<{ candidates: DiscoveryCandidate[]; searchUnavailable: boolean }> {
+  const context = buildQuestionContext(question);
+  const queries = extractGitHubQueries(question);
+  const candidates: DiscoveryCandidate[] = [];
   let searchUnavailable = false;
 
   for (const query of queries) {
@@ -243,7 +561,7 @@ export async function resolveRepos(
           phase: "resolve",
           level: "warn",
           message:
-            "GitHub repository search unavailable, using local inference heuristics",
+            "GitHub repository search unavailable, continuing with other discovery sources",
           detail:
             typeof error.details === "object" &&
             error.details &&
@@ -255,66 +573,98 @@ export async function resolveRepos(
       }
       throw error;
     }
+
     for (const result of results) {
-      const confidence = scoreCandidate(question, query, result);
+      const confidence = scoreGitHubCandidate(context, query, result);
       if (confidence <= 0) continue;
-      const existing = scored.get(result.full_name);
-      const candidate = {
+      candidates.push({
         repo: result.full_name,
         confidence,
         reason: candidateReason(query, result),
-      };
-      if (!existing || existing.confidence < candidate.confidence) {
-        scored.set(result.full_name, candidate);
+        provider: "github_repo_search",
+        signal: query.toLowerCase(),
+      });
+    }
+  }
+
+  return { candidates, searchUnavailable };
+}
+
+function rankCandidates(candidates: DiscoveryCandidate[]): RepoCandidate[] {
+  const buckets = new Map<string, CandidateBucket>();
+  for (const candidate of candidates) {
+    addCandidate(buckets, candidate);
+  }
+  return [...buckets.values()]
+    .sort((left, right) => {
+      if (right.confidence !== left.confidence) {
+        return right.confidence - left.confidence;
       }
-    }
+      return left.repo.localeCompare(right.repo);
+    })
+    .map((candidate) => ({
+      repo: candidate.repo,
+      confidence: Number(candidate.confidence.toFixed(4)),
+      reason: candidate.reason,
+    }));
+}
+
+function shouldIncludeSecondary(question: string, ranked: RepoCandidate[]) {
+  const [top, second] = ranked;
+  if (!top || !second) return false;
+  if (top.confidence < 0.9 || second.confidence < 0.85) return false;
+  return buildQuestionContext(question).crossSourceContext;
+}
+
+export async function resolveRepos(
+  request: QuestionRequest,
+  onProgress?: (event: ProgressEvent) => void,
+): Promise<ResolvedRepoInput[]> {
+  if (request.repos && request.repos.length > 0) {
+    return request.repos.map((entry) =>
+      toResolvedRepoInput(entry.repo, false, entry.ref, entry.alias),
+    );
   }
 
-  for (const candidate of fallbackCandidates(question, request)) {
-    const existing = scored.get(candidate.repo);
-    if (!existing || existing.confidence < candidate.confidence) {
-      scored.set(candidate.repo, candidate);
-    }
+  const question = request.question.trim();
+  const seededCandidates = fallbackCandidates(question, request);
+
+  if (seededCandidates.some((candidate) => candidate.provider === "explicit_question_scope")) {
+    return seededCandidates.map((candidate) => toResolvedRepoInput(candidate.repo, true));
   }
 
-  const ranked = [...scored.values()].sort(
-    (a, b) => b.confidence - a.confidence || a.repo.localeCompare(b.repo),
-  );
-  let top = ranked[0];
+  const registryCandidates = await discoverRegistryCandidates(question);
+  const { candidates: githubCandidates, searchUnavailable } =
+    await discoverGitHubCandidates(question, onProgress);
+
+  const ranked = rankCandidates([
+    ...seededCandidates,
+    ...registryCandidates,
+    ...githubCandidates,
+  ]);
+
+  const top = ranked[0];
   if (!top) {
     throw new AppError(
       "REPO_INFERENCE_AMBIGUOUS",
       searchUnavailable
-        ? "No repository candidates were found, and GitHub search is currently unavailable. Pass --repo explicitly."
-        : "No repository candidates were found.",
+        ? "No source candidates were found, and GitHub search is currently unavailable. Pass --repo explicitly."
+        : "Could not infer any source candidates from the question.",
       400,
       {
         candidates: [],
-        suggestedRequest: { question, repos: [] },
+        suggestedRequest: {
+          question,
+          repos: [],
+        },
       },
     );
   }
 
-  if (/google fonts/i.test(question)) {
-    const nextCandidate = ranked.find(
-      (entry) => entry.repo === "vercel/next.js",
-    );
-    if (nextCandidate) {
-      top = nextCandidate;
-    }
-  }
-
-  const allowSecondary =
-    /google fonts/i.test(question) &&
-    top.repo === "vercel/next.js" &&
-    ranked.some(
-      (entry) => entry.repo === "google/fonts" && entry.confidence >= 0.85,
-    );
-
   if (top.confidence >= 0.9) {
     const resolved = [toResolvedRepoInput(top.repo, true)];
-    if (allowSecondary) {
-      resolved.push(toResolvedRepoInput("google/fonts", true));
+    if (shouldIncludeSecondary(question, ranked)) {
+      resolved.push(toResolvedRepoInput(ranked[1]!.repo, true));
     }
     return resolved;
   }

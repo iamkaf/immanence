@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { AppError } from "../errors.js";
 import { resolveRepos } from "./repoResolver.js";
 
-const responses: Record<string, unknown> = {
+const githubResponses: Record<string, unknown> = {
   openclaw: {
     items: [
       {
@@ -25,19 +26,15 @@ const responses: Record<string, unknown> = {
       },
     ],
   },
-  "next.js": {
+  Next: {
     items: [
       {
-        full_name: "vercel/next.js",
-        name: "next.js",
-        stargazers_count: 130000,
+        full_name: "alibaba-fusion/next",
+        name: "next",
+        stargazers_count: 9000,
         archived: false,
-        owner: { login: "vercel" },
+        owner: { login: "alibaba-fusion" },
       },
-    ],
-  },
-  "vercel next": {
-    items: [
       {
         full_name: "vercel/next.js",
         name: "next.js",
@@ -56,22 +53,121 @@ const responses: Record<string, unknown> = {
         archived: false,
         owner: { login: "google" },
       },
+      {
+        full_name: "gaowanlu/google",
+        name: "google",
+        stargazers_count: 2,
+        archived: false,
+        owner: { login: "gaowanlu" },
+      },
+    ],
+  },
+  axum: {
+    items: [],
+  },
+};
+
+const npmSearchResponses: Record<string, unknown> = {
+  "pi-ai": {
+    objects: [
+      {
+        package: {
+          name: "pi-ai",
+        },
+      },
+      {
+        package: {
+          name: "@mariozechner/pi-ai",
+          links: {
+            repository: "git+https://github.com/badlogic/pi-mono.git",
+          },
+        },
+      },
+    ],
+  },
+  Next: {
+    objects: [
+      {
+        package: {
+          name: "next",
+          links: {
+            repository: "git+https://github.com/vercel/next.js.git",
+          },
+        },
+      },
     ],
   },
 };
 
+const crateResponses: Record<string, unknown> = {
+  axum: {
+    crate: {
+      id: "axum",
+      repository: "https://github.com/tokio-rs/axum",
+      homepage: "https://github.com/tokio-rs/axum",
+    },
+  },
+};
+
+function installFetchMock() {
+  const fetchMock = vi.fn(async (url: string | URL) => {
+    const parsed = new URL(String(url));
+
+    if (parsed.hostname === "api.github.com") {
+      const query = parsed.searchParams.get("q") || "";
+      return new Response(JSON.stringify(githubResponses[query] ?? { items: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (parsed.hostname === "registry.npmjs.org") {
+      if (parsed.pathname === "/-/v1/search") {
+        const query = parsed.searchParams.get("text") || "";
+        return new Response(
+          JSON.stringify(npmSearchResponses[query] ?? { objects: [] }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      return new Response(JSON.stringify({}), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (parsed.hostname === "crates.io") {
+      const query = decodeURIComponent(parsed.pathname.split("/").at(-1) ?? "");
+      return new Response(JSON.stringify(crateResponses[query] ?? {}), {
+        status: crateResponses[query] ? 200 : 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (parsed.hostname === "pypi.org") {
+      return new Response(JSON.stringify({}), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({}), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("resolveRepos", () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string | URL) => {
-        const query = new URL(String(url)).searchParams.get("q") || "";
-        return new Response(JSON.stringify(responses[query] ?? { items: [] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }),
-    );
+    vi.restoreAllMocks();
+    installFetchMock();
   });
 
   it("passes through explicit repos", async () => {
@@ -83,14 +179,24 @@ describe("resolveRepos", () => {
     expect(resolved[0]?.inferred).toBe(false);
   });
 
-  it("infers openclaw/openclaw", async () => {
+  it("uses explicit repo mentions in the question as scope", async () => {
+    const resolved = await resolveRepos({
+      question: "What are the top 10 recipes in the grandma/cooking-book repo?",
+    });
+
+    expect(resolved.map((entry) => entry.repo)).toEqual([
+      "grandma/cooking-book",
+    ]);
+  });
+
+  it("infers openclaw/openclaw from project-name discovery", async () => {
     const resolved = await resolveRepos({
       question: "How is OpenClaw able to sync Codex credentials?",
     });
     expect(resolved.map((entry) => entry.repo)).toEqual(["openclaw/openclaw"]);
   });
 
-  it("infers vercel-labs/json-render", async () => {
+  it("infers vercel-labs/json-render from project-name discovery", async () => {
     const resolved = await resolveRepos({
       question: "How do I get started with json-render?",
     });
@@ -99,7 +205,23 @@ describe("resolveRepos", () => {
     ]);
   });
 
-  it("allows google/fonts as a secondary repo for the Next prompt", async () => {
+  it("infers badlogic/pi-mono from package metadata", async () => {
+    const resolved = await resolveRepos({
+      question: "How does the pi-ai package implement openai codex oauth?",
+    });
+
+    expect(resolved.map((entry) => entry.repo)).toEqual(["badlogic/pi-mono"]);
+  });
+
+  it("infers tokio-rs/axum from crate metadata", async () => {
+    const resolved = await resolveRepos({
+      question: "How do I make a server with the axum library?",
+    });
+
+    expect(resolved.map((entry) => entry.repo)).toEqual(["tokio-rs/axum"]);
+  });
+
+  it("allows multiple high-confidence sources for cross-source questions", async () => {
     const resolved = await resolveRepos({
       question: "Where does Next take its list of Google fonts from?",
     });
@@ -119,18 +241,43 @@ describe("resolveRepos", () => {
     } satisfies Partial<AppError>);
   });
 
-  it("falls back to local heuristics when GitHub search returns 403", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("rate limited", { status: 403 })),
-    );
+  it("falls back to non-GitHub discovery when GitHub search returns 403", async () => {
+    const fetchMock = installFetchMock();
+    (fetchMock as Mock).mockImplementation(async (url: string | URL) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "api.github.com") {
+        return new Response("rate limited", { status: 403 });
+      }
 
-    const resolved = await resolveRepos({
-      question: "How do I get started with json-render?",
+      if (parsed.hostname === "crates.io") {
+        const query = decodeURIComponent(parsed.pathname.split("/").at(-1) ?? "");
+        return new Response(JSON.stringify(crateResponses[query] ?? {}), {
+          status: crateResponses[query] ? 200 : 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (parsed.hostname === "registry.npmjs.org" && parsed.pathname === "/-/v1/search") {
+        const query = parsed.searchParams.get("text") || "";
+        return new Response(
+          JSON.stringify(npmSearchResponses[query] ?? { objects: [] }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      return new Response(JSON.stringify({}), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
     });
 
-    expect(resolved.map((entry) => entry.repo)).toEqual([
-      "vercel-labs/json-render",
-    ]);
+    const resolved = await resolveRepos({
+      question: "How does the pi-ai package implement openai codex oauth?",
+    });
+
+    expect(resolved.map((entry) => entry.repo)).toEqual(["badlogic/pi-mono"]);
   });
 });
