@@ -20,7 +20,7 @@ import { citationsFromWebResults } from "./citations.js";
 
 type SessionRepoEntry = {
   handle: RepoHandle;
-  mirrorPath: string;
+  snapshotPath: string;
 };
 
 export type AgentSessionState = {

@@ -23,7 +23,8 @@ export function buildAgentTools(includeWebSearch: boolean): Tool[] {
     },
     {
       name: "list",
-      description: "List files and directories in a cloned repository.",
+      description:
+        "List files and directories in a cloned repository. Use this only when search results are not enough to identify candidate files; do not use list just to confirm filenames already surfaced by search.",
       parameters: Type.Object({
         repoId: Type.String({
           description:
@@ -45,7 +46,7 @@ export function buildAgentTools(includeWebSearch: boolean): Tool[] {
     {
       name: "read",
       description:
-        "Read text from a repository file with optional line bounds.",
+        "Read text from a repository file with optional line bounds. Prefer canonical source-of-truth files first, and avoid validators, tests, or workflows unless the question depends on them.",
       parameters: Type.Object({
         repoId: Type.String({
           description:
@@ -64,7 +65,8 @@ export function buildAgentTools(includeWebSearch: boolean): Tool[] {
     },
     {
       name: "search",
-      description: "Search within a repository using ripgrep.",
+      description:
+        "Search within a repository using ripgrep. Results include file paths, line numbers, and previews, so prefer this before list when you already have a likely term or module name.",
       parameters: Type.Object({
         repoId: Type.String({
           description:

@@ -37,3 +37,11 @@ export function parseGitHubRepo(input: string): GitHubRepo {
 export function buildGitHubCloneUrl(repo: GitHubRepo) {
   return `https://github.com/${repo.owner}/${repo.name}.git`;
 }
+
+export function buildGitHubTarballUrl(
+  owner: string,
+  name: string,
+  ref: string,
+) {
+  return `https://codeload.github.com/${owner}/${name}/tar.gz/${ref}`;
+}

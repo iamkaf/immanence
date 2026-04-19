@@ -15,10 +15,12 @@ import type {
 } from "../types.js";
 import { dedupeCitations, summarizeTrace } from "./transcript.js";
 import { buildSystemPrompt } from "./prompts.js";
+import { buildStopExplorationMessage } from "./budget.js";
 import { buildAgentTools } from "./toolSpecs.js";
 import { executeToolCall, type AgentSessionState } from "./toolExecutor.js";
 import { resolveCodexApiKey, resolveCodexModel } from "../auth/codexAuth.js";
 import { cleanupRepoHandles } from "../repos/repoCache.js";
+import type { SourceDiscoveryPlan } from "../repos/sourcePlanner.js";
 
 const MAX_TOOL_RESULT_CHARS = 200_000;
 const MAX_AGENT_TURNS = 12;
@@ -49,6 +51,32 @@ function serializeToolResult(result: unknown) {
     null,
     2,
   );
+}
+
+function buildPlannerGuidance(plannerHints?: SourceDiscoveryPlan | null) {
+  if (!plannerHints) return null;
+
+  const lines: string[] = [];
+  if (plannerHints.explicitRepos.length > 0) {
+    lines.push(`Likely repos: ${plannerHints.explicitRepos.join(", ")}`);
+  }
+  if (plannerHints.likelyPaths.length > 0) {
+    lines.push(
+      `Likely starting paths: ${plannerHints.likelyPaths.slice(0, 5).join(", ")}`,
+    );
+  }
+  if (plannerHints.repoQueries.length > 0) {
+    lines.push(
+      `Fallback search phrases: ${plannerHints.repoQueries.slice(0, 3).join(", ")}`,
+    );
+  }
+  if (lines.length === 0) return null;
+
+  return [
+    "Planner guidance from source discovery:",
+    ...lines,
+    "Use these as starting guesses. Prefer checking hinted paths directly before broad search or list calls.",
+  ].join("\n");
 }
 
 function toolRequestEvent(toolCall: {
@@ -105,7 +133,8 @@ function toolRequestEvent(toolCall: {
 export async function runAgentQuestion(args: {
   config: ImmanenceConfig;
   request: QuestionRequest;
-  repos: Array<{ handle: RepoHandle; mirrorPath: string }>;
+  repos: Array<{ handle: RepoHandle; snapshotPath: string }>;
+  plannerHints?: SourceDiscoveryPlan | null;
   onDelta?: (delta: string) => void;
   onProgress?: (event: ProgressEvent) => void;
 }): Promise<QuestionResponse> {
@@ -145,6 +174,14 @@ export async function runAgentQuestion(args: {
       timestamp: Date.now(),
     },
   ];
+  const plannerGuidance = buildPlannerGuidance(args.plannerHints);
+  if (plannerGuidance) {
+    messages.push({
+      role: "user",
+      content: plannerGuidance,
+      timestamp: Date.now(),
+    });
+  }
 
   try {
     let finalAnswer = "";
@@ -152,17 +189,15 @@ export async function runAgentQuestion(args: {
     let toolCallCount = 0;
 
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn += 1) {
-      if (turn >= 8 && sessionState.citations.length >= 3) {
+      const stopMessage = buildStopExplorationMessage({
+        turn,
+        maxTurns: MAX_AGENT_TURNS,
+        citations: sessionState.citations,
+      });
+      if (stopMessage) {
         messages.push({
           role: "user",
-          content: [
-            "You already have enough evidence to answer.",
-            `You have ${sessionState.citations.length} citations and ${
-              MAX_AGENT_TURNS - turn
-            } turns remaining.`,
-            "Do not call more tools unless one critical file is still missing.",
-            "Prefer answering now with the evidence you have.",
-          ].join(" "),
+          content: stopMessage,
           timestamp: Date.now(),
         });
       }
@@ -178,6 +213,7 @@ export async function runAgentQuestion(args: {
               (entry) => entry.handle,
             ),
             includeWebSearch: !!args.request.includeWebSearch,
+            plannerHints: args.plannerHints,
           }),
           messages,
           tools: buildAgentTools(!!args.request.includeWebSearch),
@@ -318,10 +354,10 @@ export async function runAgentQuestion(args: {
       warnings: sessionState.warnings,
     };
   } finally {
-    args.onProgress?.({ phase: "cleanup", message: "cleaning up worktrees" });
+    args.onProgress?.({ phase: "cleanup", message: "cleaning up snapshots" });
     await cleanupRepoHandles(
       [...sessionState.repoEntries.values()].map((entry) => ({
-        mirrorPath: entry.mirrorPath,
+        snapshotPath: entry.snapshotPath,
         workspacePath: entry.handle.workspacePath,
       })),
     );

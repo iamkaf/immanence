@@ -74,6 +74,7 @@ export async function answerQuestion(
       config,
       request,
       repos: preparedRepos,
+      plannerHints,
       onDelta: hooks.onDelta,
       onProgress: hooks.onProgress,
     });

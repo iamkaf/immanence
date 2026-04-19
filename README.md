@@ -3,8 +3,8 @@
 Immanence is a local AI-powered codebase exploration utility. It answers questions about public GitHub repositories by:
 
 1. Resolving or accepting repository targets
-2. Cloning or refreshing cached mirrors
-3. Creating detached read-only worktrees
+2. Resolving the target commit SHA
+3. Downloading or reusing cached source snapshots
 4. Letting a Codex-backed agent inspect the code with bespoke tools
 5. Returning an answer with citations and a tool trace
 
@@ -43,6 +43,7 @@ Out of scope in the current build:
 
 - Node.js 20+
 - `git`
+- `tar`
 - `rg` (`ripgrep`) on `PATH`
 
 Optional:
@@ -224,15 +225,15 @@ Defaults:
 - data dir: `~/.local/share/immanence`
 - cache dir: `~/.cache/immanence`
 - auth file: `~/.local/share/immanence/auth.json`
-- repo mirror cache: `~/.local/share/immanence/repos/github.com/...`
+- repo snapshot cache: `~/.local/share/immanence/repos/github.com/...`
 
 ## How It Works
 
 ### Repo handling
 
-- Repos are cached as bare mirrors
-- Mirrors are refreshed according to `refresh`
-- Each request gets detached read-only worktrees pinned to exact commit SHAs
+- Repos are cached as extracted source snapshots keyed by commit SHA
+- Refs are refreshed according to `refresh`
+- Snapshots are downloaded from GitHub tarballs and reused across requests
 - Final responses include commit SHAs so citations are stable
 
 ### Agent tools
@@ -250,9 +251,7 @@ The Codex-backed agent uses bespoke internal tools:
 If `repos` are omitted, Immanence tries to infer likely repos from question text using:
 
 - direct `owner/name` mentions
-- project-name tokens
-- GitHub repository search
-- a few explicit heuristics for known fixture prompts
+- model-planned repository guesses
 
 If the result is not confident enough, it fails instead of guessing silently.
 

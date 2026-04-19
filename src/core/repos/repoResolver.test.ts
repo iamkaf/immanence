@@ -1,209 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Mock } from "vitest";
+import { describe, expect, it } from "vitest";
 import { AppError } from "../errors.js";
 import { resolveRepos } from "./repoResolver.js";
 
-const githubResponses: Record<string, unknown> = {
-  openclaw: {
-    items: [
-      {
-        full_name: "openclaw/openclaw",
-        name: "openclaw",
-        stargazers_count: 1200,
-        archived: false,
-        owner: { login: "openclaw" },
-      },
-    ],
-  },
-  "json-render": {
-    items: [
-      {
-        full_name: "vercel-labs/json-render",
-        name: "json-render",
-        stargazers_count: 500,
-        archived: false,
-        owner: { login: "vercel-labs" },
-      },
-    ],
-  },
-  Next: {
-    items: [
-      {
-        full_name: "alibaba-fusion/next",
-        name: "next",
-        stargazers_count: 9000,
-        archived: false,
-        owner: { login: "alibaba-fusion" },
-      },
-      {
-        full_name: "vercel/next.js",
-        name: "next.js",
-        stargazers_count: 130000,
-        archived: false,
-        owner: { login: "vercel" },
-      },
-    ],
-  },
-  "google fonts": {
-    items: [
-      {
-        full_name: "google/fonts",
-        name: "fonts",
-        stargazers_count: 10000,
-        archived: false,
-        owner: { login: "google" },
-      },
-      {
-        full_name: "gaowanlu/google",
-        name: "google",
-        stargazers_count: 2,
-        archived: false,
-        owner: { login: "gaowanlu" },
-      },
-    ],
-  },
-  axum: {
-    items: [],
-  },
-};
-
-const npmSearchResponses: Record<string, unknown> = {
-  "pi-ai": {
-    objects: [
-      {
-        package: {
-          name: "pi-ai",
-        },
-      },
-      {
-        package: {
-          name: "@mariozechner/pi-ai",
-          links: {
-            repository: "git+https://github.com/badlogic/pi-mono.git",
-          },
-        },
-      },
-    ],
-  },
-  Next: {
-    objects: [
-      {
-        package: {
-          name: "next",
-          links: {
-            repository: "git+https://github.com/vercel/next.js.git",
-          },
-        },
-      },
-    ],
-  },
-};
-
-const crateResponses: Record<string, unknown> = {
-  axum: {
-    crate: {
-      id: "axum",
-      repository: "https://github.com/tokio-rs/axum",
-      homepage: "https://github.com/tokio-rs/axum",
-    },
-  },
-};
-
-function installFetchMock() {
-  const fetchMock = vi.fn(async (url: string | URL) => {
-    const parsed = new URL(String(url));
-
-    if (parsed.hostname === "api.github.com") {
-      const query = parsed.searchParams.get("q") || "";
-      return new Response(JSON.stringify(githubResponses[query] ?? { items: [] }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    if (parsed.hostname === "registry.npmjs.org") {
-      if (parsed.pathname === "/-/v1/search") {
-        const query = parsed.searchParams.get("text") || "";
-        return new Response(
-          JSON.stringify(npmSearchResponses[query] ?? { objects: [] }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        );
-      }
-
-      const exactPackage = decodeURIComponent(parsed.pathname.slice(1));
-      if (exactPackage === "next") {
-        return new Response(
-          JSON.stringify({
-            name: "next",
-            repository: { url: "git+https://github.com/vercel/next.js.git" },
-            homepage: "https://github.com/vercel/next.js",
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        );
-      }
-
-      if (exactPackage === "pi-ai") {
-        return new Response(
-          JSON.stringify({
-            name: "pi-ai",
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        );
-      }
-
-      return new Response(JSON.stringify({}), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    if (parsed.hostname === "crates.io") {
-      const query = decodeURIComponent(parsed.pathname.split("/").at(-1) ?? "");
-      return new Response(JSON.stringify(crateResponses[query] ?? {}), {
-        status: crateResponses[query] ? 200 : 404,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    if (parsed.hostname === "pypi.org") {
-      return new Response(JSON.stringify({}), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    return new Response(JSON.stringify({}), {
-      status: 404,
-      headers: { "content-type": "application/json" },
-    });
-  });
-
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
 describe("resolveRepos", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    installFetchMock();
-  });
-
   it("passes through explicit repos", async () => {
     const resolved = await resolveRepos({
       question: "How is OpenClaw able to sync Codex credentials?",
       repos: [{ repo: "openclaw/openclaw" }],
     });
-    expect(resolved[0]?.repo).toBe("openclaw/openclaw");
-    expect(resolved[0]?.inferred).toBe(false);
+
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        repo: "openclaw/openclaw",
+        inferred: false,
+      }),
+    ]);
   });
 
   it("uses explicit repo mentions in the question as scope", async () => {
@@ -216,204 +27,51 @@ describe("resolveRepos", () => {
     ]);
   });
 
-  it("infers openclaw/openclaw from project-name discovery", async () => {
-    const resolved = await resolveRepos({
-      question: "How is OpenClaw able to sync Codex credentials?",
-    });
-    expect(resolved.map((entry) => entry.repo)).toEqual(["openclaw/openclaw"]);
-  });
+  it("uses the model's guessed repositories", async () => {
+    const resolved = await resolveRepos(
+      {
+        question: "Where does Next take its list of Google fonts from?",
+      },
+      {
+        plannerHints: {
+          explicitRepos: ["vercel/next.js", "https://github.com/google/fonts"],
+          primarySubjects: [],
+          secondarySubjects: [],
+          packageIdentifiers: [],
+          repoQueries: [],
+          likelyPaths: [],
+          crossSource: true,
+        },
+      },
+    );
 
-  it("infers vercel-labs/json-render from project-name discovery", async () => {
-    const resolved = await resolveRepos({
-      question: "How do I get started with json-render?",
-    });
     expect(resolved.map((entry) => entry.repo)).toEqual([
-      "vercel-labs/json-render",
+      "vercel/next.js",
+      "google/fonts",
     ]);
   });
 
-  it("infers badlogic/pi-mono from package metadata", async () => {
-    const resolved = await resolveRepos({
-      question: "How does the pi-ai package implement openai codex oauth?",
-    });
-
-    expect(resolved.map((entry) => entry.repo)).toEqual(["badlogic/pi-mono"]);
-  });
-
-  it("infers tokio-rs/axum from crate metadata", async () => {
-    const resolved = await resolveRepos({
-      question: "How do I make a server with the axum library?",
-    });
-
-    expect(resolved.map((entry) => entry.repo)).toEqual(["tokio-rs/axum"]);
-  });
-
-  it("keeps only the strong primary source when secondary evidence is weak", async () => {
-    const resolved = await resolveRepos({
-      question: "Where does Next take its list of Google fonts from?",
-    });
-    expect(resolved.map((entry) => entry.repo)).toEqual(["vercel/next.js"]);
-  });
-
-  it("uses AI planner hints to disambiguate weak GitHub results", async () => {
-    const resolved = await resolveRepos(
-      {
-        question: "Where does Next take its list of Google fonts from?",
-      },
-      {
-        plannerHints: {
-          explicitRepos: [],
-          primarySubjects: ["Next"],
-          secondarySubjects: ["Google Fonts"],
-          packageIdentifiers: ["next"],
-          repoQueries: ["google fonts"],
-          crossSource: true,
-        },
-      },
-    );
-
-    expect(resolved.map((entry) => entry.repo)).toEqual(["vercel/next.js"]);
-  });
-
-  it("prefers strong metadata evidence over equally scored weak search hits", async () => {
-    const resolved = await resolveRepos(
-      {
-        question: "Where does Next take its list of Google fonts from?",
-      },
-      {
-        plannerHints: {
-          explicitRepos: [],
-          primarySubjects: ["Next.js font system list source"],
-          secondarySubjects: ["Google Fonts catalog source in Next.js"],
-          packageIdentifiers: ["@next/font"],
-          repoQueries: ["Google"],
-          crossSource: true,
-        },
-      },
-    );
-
-    expect(resolved[0]?.repo).toBe("vercel/next.js");
-  });
-
-  it("returns an ambiguity error when nothing matches", async () => {
+  it("fails closed when the model does not guess a repository", async () => {
     await expect(
-      resolveRepos({
-        question: "What repo owns this imaginary library?",
-      }),
+      resolveRepos(
+        {
+          question: "What repo owns this imaginary library?",
+        },
+        {
+          plannerHints: {
+            explicitRepos: [],
+            primarySubjects: [],
+            secondarySubjects: [],
+            packageIdentifiers: [],
+            repoQueries: [],
+            likelyPaths: [],
+            crossSource: false,
+          },
+        },
+      ),
     ).rejects.toMatchObject({
       code: "REPO_INFERENCE_AMBIGUOUS",
+      message: "The model did not produce a repository guess. Pass --repo explicitly.",
     } satisfies Partial<AppError>);
-  });
-
-  it("falls back to non-GitHub discovery when GitHub search returns 403", async () => {
-    const fetchMock = installFetchMock();
-    (fetchMock as Mock).mockImplementation(async (url: string | URL) => {
-      const parsed = new URL(String(url));
-      if (parsed.hostname === "api.github.com") {
-        return new Response("rate limited", { status: 403 });
-      }
-
-      if (parsed.hostname === "crates.io") {
-        const query = decodeURIComponent(parsed.pathname.split("/").at(-1) ?? "");
-        return new Response(JSON.stringify(crateResponses[query] ?? {}), {
-          status: crateResponses[query] ? 200 : 404,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      if (parsed.hostname === "registry.npmjs.org" && parsed.pathname === "/-/v1/search") {
-        const query = parsed.searchParams.get("text") || "";
-        return new Response(
-          JSON.stringify(npmSearchResponses[query] ?? { objects: [] }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        );
-      }
-
-      if (parsed.hostname === "registry.npmjs.org") {
-        const exactPackage = decodeURIComponent(parsed.pathname.slice(1));
-        if (exactPackage === "pi-ai") {
-          return new Response(
-            JSON.stringify({
-              name: "pi-ai",
-            }),
-            {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            },
-          );
-        }
-      }
-
-      return new Response(JSON.stringify({}), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
-    });
-
-    const resolved = await resolveRepos({
-      question: "How does the pi-ai package implement openai codex oauth?",
-    });
-
-    expect(resolved.map((entry) => entry.repo)).toEqual(["badlogic/pi-mono"]);
-  });
-
-  it("fails closed on weak search-only evidence for the Next prompt", async () => {
-    const fetchMock = installFetchMock();
-    (fetchMock as Mock).mockImplementation(async (url: string | URL) => {
-      const parsed = new URL(String(url));
-      if (parsed.hostname === "api.github.com") {
-        return new Response("rate limited", { status: 403 });
-      }
-
-      if (parsed.hostname === "registry.npmjs.org") {
-        const exactPackage = decodeURIComponent(parsed.pathname.slice(1));
-        if (exactPackage === "next") {
-          return new Response(
-            JSON.stringify({
-              name: "next",
-              repository: { url: "git+https://github.com/vercel/next.js.git" },
-              homepage: "https://github.com/vercel/next.js",
-            }),
-            {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            },
-          );
-        }
-
-        if (parsed.pathname === "/-/v1/search") {
-          return new Response(JSON.stringify({ objects: [] }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-      }
-
-      return new Response(JSON.stringify({}), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
-    });
-
-    const resolved = await resolveRepos(
-      {
-        question: "Where does Next take its list of Google fonts from?",
-      },
-      {
-        plannerHints: {
-          explicitRepos: [],
-          primarySubjects: ["Next.js Google Fonts list source"],
-          secondarySubjects: ["Google Font metadata source in Next.js"],
-          packageIdentifiers: ["@next/font/google", "next/font/google module"],
-          repoQueries: ["Google Fonts", "Next.js"],
-          crossSource: true,
-        },
-      },
-    );
-
-    expect(resolved.map((entry) => entry.repo)).toEqual(["vercel/next.js"]);
   });
 });
